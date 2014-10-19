@@ -20,11 +20,15 @@ class FastWrapper : InputBuffer {
 		return contents[index];
 	}
 
-	dstring opSlice(size_t begin, size_t end) {
+	dstring opSlice(size_t begin, size_t end) in {
+		assert(end >= begin);
+	} body {
 		return contents[begin .. end];
 	}
 
-	dstring opSlice(size_t begin, size_t end) const {
+	dstring opSlice(size_t begin, size_t end) const in {
+		assert(end >= begin);
+	} body {
 		return contents[begin .. end];
 	}
 
@@ -58,7 +62,9 @@ class SlowWrapper : InputBuffer {
 		return contents[index];
 	}
 
-	dstring opSlice(size_t start, size_t end) {
+	dstring opSlice(size_t start, size_t end) in {
+		assert(end >= start);
+	} body {
 		while (contents.length <= end) {
 			readChar();
 		}
@@ -80,7 +86,7 @@ class SlowWrapper : InputBuffer {
 protected:
 	void readChar() {
 		if (getter.empty()) {
-			throw new Exception("Input exhausted");
+			throw new OutOfInputException();
 		}
 		contents ~= decodeFront(getter);
 	}
