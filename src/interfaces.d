@@ -7,9 +7,40 @@ class OutOfInputException : object.Exception {
 };
 
 struct Derivation {
+	enum Type {
+		_dstring,
+		_null,
+		_failure
+	}
+
+	union Value {
+		dstring _dstring;
+	}
+
 	size_t offset;
-	bool success = false;
-	// value;
+	Type type = Type._failure;
+	Value value;
+
+	this(size_t offset) {
+		this.offset = offset;
+		type = Type._null;
+		value._dstring = null;
+	}
+
+	this(size_t offset, dstring value) {
+		this.offset = offset;
+		type = Type._dstring;
+		this.value._dstring = value;
+	}
+
+	@property dstring _dstring() const {
+		assert(type == Type._dstring);
+		return value._dstring;
+	}
+
+	@property bool success() const {
+		return type != Type._failure;
+	}
 }
 
 interface InputBuffer {

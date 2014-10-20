@@ -49,11 +49,11 @@ Derivation declaration(size_t offset, byte precedence, DerivsTable table) in {
 	// Declaration = Identifier '=' Rule
 	if ((part1 = identifier(offset, 0, table)).success &&
 	  (part2 = symbol(part1.offset, 0, table)).success &&
-	  //part2.value == '=' &&
+	  part2._dstring == "=" &&
 	  (part3 = rule(part2.offset, 0, table)).success) {
-		return Derivation(part3.offset, true);
+		return Derivation(part3.offset);
 	}
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
@@ -65,126 +65,126 @@ Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
 		// Rule = Rule "/<" Rule %l
 		if ((part1 = rule(offset, -1, table)).success &&
 		  (part2 = symbol(part1.offset, 0, table)).success &&
-		  //part2.value == "/<" &&
+		  part2._dstring == "/<" &&
 		  (part3 = rule(part2.offset, -1, table)).success) {
-			return Derivation(part3.offset, true);
+			return Derivation(part3.offset);
 		}
 		goto case;
 	case 1:
 		// Rule = Rule '/' Rule %l
 		if ((part1 = rule(offset, -1, table)).success &&
 		  (part2 = symbol(part1.offset, 0, table)).success &&
-		  //part2.value == '/' &&
+		  part2._dstring == "/" &&
 		  (part3 = rule(part2.offset, -1, table)).success) {
-			return Derivation(part3.offset, true);
+			return Derivation(part3.offset);
 		}
 		goto case;
 	case 2:
 		// Rule = Rule '|' Rule %l
 		if ((part1 = rule(offset, -1, table)).success &&
 		  (part2 = symbol(part1.offset, 0, table)).success &&
-		  //part2.value == '|' &&
+		  part2._dstring == "|" &&
 		  (part3 = rule(part2.offset, -1, table)).success) {
-			return Derivation(part3.offset, true);
+			return Derivation(part3.offset);
 		}
 		goto case;
 	case 3:
 		// Rule = Rule Function %n
 		if ((part1 = rule(offset, 4, table)).success &&
 		  (part2 = _function(part1.offset, 0, table)).success) {
-			return Derivation(part2.offset, true);
+			return Derivation(part2.offset);
 		}
 		goto case;
 	case 4:
 		// Rule = '&' Rule %n
 		if ((part1 = symbol(offset, 0, table)).success &&
-		  //part1.value == '&' &&
+		  part1._dstring == "&" &&
 		  (part2 = rule(part1.offset, 5, table)).success) {
-			return Derivation(part2.offset, true);
+			return Derivation(part2.offset);
 		}
 		// Rule = '!' Rule %n
 		else if ((part1 = symbol(offset, 0, table)).success &&
-		  //part1.value == '!' &&
+		  part1._dstring == "!" &&
 		  (part2 = rule(part1.offset, 5, table)).success) {
-			return Derivation(part2.offset, true);
+			return Derivation(part2.offset);
 		}
 		// Rule = '&' Function %n
 		else if ((part1 = symbol(offset, 0, table)).success &&
-		  //part1.value == '&' &&
+		  part1._dstring == "&" &&
 		  (part2 = _function(part1.offset, 0, table)).success) {
-			return Derivation(part2.offset, true);
+			return Derivation(part2.offset);
 		}
 		goto case;
 	case 5:
 		// Rule = Rule '*' %n
 		if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success) { //&&
-		  //part2.value == '*'
-			return Derivation(part2.offset, true);
+		  (part2 = symbol(part1.offset, 0, table)).success &&
+		  part2._dstring == "*") {
+			return Derivation(part2.offset);
 		}
 		// Rule = Rule '+' %n
 		else if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success) { //&&
-		  //part2.value == '+'
-			return Derivation(part2.offset, true);
+		  (part2 = symbol(part1.offset, 0, table)).success &&
+		  part2._dstring == "+") {
+			return Derivation(part2.offset);
 		}
 		// Rule = Rule '?' %n
 		else if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success) { //&&
-		  //part2.value == '?'
-			return Derivation(part2.offset, true);
+		  (part2 = symbol(part1.offset, 0, table)).success &&
+		  part2._dstring == "?") {
+			return Derivation(part2.offset);
 		}
 		goto case;
 	case 6:
 		// Rule = Rule Rule %l
 		if ((part1 = rule(offset, -1, table)).success &&
 		  (part2 = rule(part1.offset, -1, table)).success) {
-			return Derivation(part2.offset, true);
+			return Derivation(part2.offset);
 		}
 		goto case;
 	case 7:
 		// Rule = '(' Rule ')' %p
 		if ((part1 = symbol(offset, 0, table)).success &&
-		  //part1.value == '(' &&
+		  part1._dstring == "(" &&
 		  (part2 = rule(part1.offset, 0, table)).success &&
-		  (part3 = symbol(part2.offset, 0, table)).success) { //&&
-		  //part3.value == ')'
-			return Derivation(part3.offset, true);
+		  (part3 = symbol(part2.offset, 0, table)).success &&
+		  part3._dstring == ")") {
+			return Derivation(part3.offset);
 		}
 		// Rule = Identifier
 		else if ((part1 = identifier(offset, 0, table)).success) {
-			return Derivation(part1.offset, true);
+			return Derivation(part1.offset);
 		}
 		// Rule = Literal
 		else if ((part1 = literal(offset, 0, table)).success) {
-			return Derivation(part1.offset, true);
+			return Derivation(part1.offset);
 		}
 		// Rule = '(' ')'
 		else if ((part1 = symbol(offset, 0, table)).success &&
-		  //part1.value == '(' &&
-		  (part2 = symbol(offset, 0, table)).success) { //&&
-		  //part2.value == ')'
-			return Derivation(part2.offset, true);
+		  part1._dstring == "(" &&
+		  (part2 = symbol(offset, 0, table)).success &&
+		  part2._dstring == ")") {
+			return Derivation(part2.offset);
 		}
-		return Derivation.init;
+		return Derivation();
 	default: assert(0);
 	}
 }
 
 Derivation _function(size_t offset, byte precedence, DerivsTable table) {
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation identifier(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation literal(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
@@ -192,15 +192,37 @@ Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
 } body {
 	try {
 		switch (table.input[offset]) {
-		case '!': return Derivation(offset + 1, true);
-		case '#': return Derivation(offset + 1, true);
-		case '$': return Derivation(offset + 1, true);
-		case '%': return Derivation(offset + 1, true);
-		case '&': return Derivation(offset + 1, true);
-		default: return Derivation.init;
+		case '!':
+		case '#':
+		case '$':
+		case '%':
+		case '&':
+		case '(':
+		case ')':
+		case '*':
+		case '+':
+		case '.':
+			return Derivation(offset + 1, table.input[offset .. offset + 1]);
+		case '/':
+			if (table.input[offset + 1] == '<') {
+				return Derivation(offset + 2, table.input[offset .. offset + 2]);
+			} else {
+				return Derivation(offset + 1, table.input[offset .. offset + 1]);
+			}
+		case '<':
+		case '=':
+		case '?':
+		case '@':
+		case '[':
+		case ']':
+		case '{':
+		case '|':
+		case '}':
+			return Derivation(offset + 1, table.input[offset .. offset + 1]);
+		default: return Derivation();
 		}
 	} catch (OutOfInputException e) {
-		return Derivation.init;
+		return Derivation();
 	}
 }
 
@@ -216,15 +238,15 @@ Derivation whitespace(size_t offset, byte precedence, DerivsTable table) in {
 		  ((part1 = nestingcomment(end, 0, table)).success && (end = part1.offset, 1))) {};
 	} catch (OutOfInputException e) {
 		if (offset == end) {
-			return Derivation.init;
+			return Derivation();
 		} else {
-			return Derivation(end, true);
+			return Derivation(end, table.input[offset .. end]);
 		}
 	}
 	if (offset == end) {
-		return Derivation.init;
+		return Derivation();
 	} else {
-		return Derivation(end, true);
+		return Derivation(end, table.input[offset .. end]);
 	}
 }
 
@@ -240,57 +262,59 @@ size_t skipwhitespace(size_t offset, DerivsTable table) {
 Derivation linecomment(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
+	size_t end;
 	dchar cur;
 	try {
 		if (table.input[offset] == '/' && table.input[offset + 1] == '/') {
 			try {
-				offset += 2;
-				cur = table.input[offset];
+				end = offset + 2;
+				cur = table.input[end];
 				while (cur != '\0' && cur != '\r' && cur != '\n' && cur != '\u2028' && cur != '\u2029') {
-					offset++;
-					cur = table.input[offset];
+					end++;
+					cur = table.input[end];
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(offset, true);
+				return Derivation(end, table.input[offset .. end]);
 			}
 			try {
-				if (cur == '\r' && table.input[offset + 1] == '\n') {
-					return Derivation(offset + 2, true);
+				if (cur == '\r' && table.input[end + 1] == '\n') {
+					return Derivation(end + 2, table.input[offset .. end + 2]);
 				} else {
-					return Derivation(offset + 1, true);
+					return Derivation(end + 1, table.input[offset .. end + 1]);
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(offset + 1, true);
+				return Derivation(end + 1, table.input[offset .. end + 1]);
 			}
 		}
 	} catch (OutOfInputException e) {
-		return Derivation.init;
+		return Derivation();
 	}
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation blockcomment(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
+	size_t end;
 	dchar cur;
 	try {
 		if (table.input[offset] == '/' && table.input[offset + 1] == '*') {
 			try {
-				offset += 2;
-				cur = table.input[offset];
-				while (cur != '*' || table.input[offset + 1] != '/') {
+				end = offset + 2;
+				cur = table.input[end];
+				while (cur != '*' || table.input[end + 1] != '/') {
 					offset++;
-					cur = table.input[offset];
+					cur = table.input[end];
 				}
-				return Derivation(offset + 1, true);
+				return Derivation(end + 2, table.input[offset .. end + 2]);
 			} catch (OutOfInputException e) {
 				// syntax error: unterminated block comment
 			}
 		}
 	} catch (OutOfInputException e) {
-		return Derivation.init;
+		return Derivation();
 	}
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation nestingcomment(size_t offset, byte precedence, DerivsTable table) in {
@@ -316,14 +340,16 @@ Derivation nestingcomment(size_t offset, byte precedence, DerivsTable table) in 
 		assert(0);
 	}
 
+	size_t end;
 	try {
 		if (table.input[offset] == '/' && table.input[offset + 1] == '+') {
-			return Derivation(nestedcomment(offset + 2, table), true);
+			end = nestedcomment(offset + 2, table);
+			return Derivation(end, table.input[offset .. end]);
 		}
 	} catch (OutOfInputException e) {
-		return Derivation.init;
+		return Derivation();
 	}
-	return Derivation.init;
+	return Derivation();
 }
 
 Derivation lineterminator(size_t offset, byte precedence, DerivsTable table) in {
@@ -333,19 +359,19 @@ Derivation lineterminator(size_t offset, byte precedence, DerivsTable table) in 
 		if (table.input[offset] == '\r') {
 			try {
 				if (table.input[offset + 1] == '\n') {
-					return Derivation(offset + 2, true);
+					return Derivation(offset + 2, table.input[offset .. offset + 2]);
 				} else {
-					return Derivation(offset + 1, true);
+					return Derivation(offset + 1, table.input[offset .. offset + 1]);
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(offset + 1, true);
+				return Derivation(offset + 1, table.input[offset .. offset + 1]);
 			}
 		} else if (table.input[offset] == '\n' || table.input[offset] == '\u2028' || table.input[offset] == '\u2029') {
-			return Derivation (offset + 1, true);
+			return Derivation(offset + 1, table.input[offset .. offset + 1]);
 		}
 	} catch (OutOfInputException e) {
-		return Derivation.init;
+		return Derivation();
 	}
-	return Derivation.init;
+	return Derivation();
 }
 
