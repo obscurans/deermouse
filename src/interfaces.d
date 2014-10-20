@@ -28,12 +28,12 @@ struct Derivation {
 		this.value._dstring = value;
 	}
 
-	@property dstring _dstring() const {
+	@property nothrow dstring _dstring() const {
 		assert(type == Type._dstring);
 		return value._dstring;
 	}
 
-	@property bool success() const {
+	@property nothrow bool success() const {
 		return type != Type._failure;
 	}
 

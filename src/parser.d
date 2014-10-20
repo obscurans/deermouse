@@ -3,11 +3,13 @@
 import interfaces;
 import std.ascii;
 
+private:
 enum Nonterminal : Derivation function(size_t, byte, DerivsTable) {
 	declaration = &.declaration,
 	rule = &.rule,
 	_function = &._function,
 	identifier = &.identifier,
+	rawcode = &.rawcode,
 	literal = &.literal,
 	symbol = &.symbol,
 	whitespace = &.whitespace,
@@ -25,6 +27,7 @@ class DerivsTable {
 	}
 
 	InputBuffer input;
+	Derivation[Index] memotable;
 
 	Derivation opIndex(Index index) {
 		if (index in memotable) {
@@ -37,9 +40,6 @@ class DerivsTable {
 	Derivation opIndex(size_t offset, Nonterminal type, byte precedence) {
 		return opIndex(Index(offset, type, precedence));
 	}
-
-private:
-	Derivation[Index] memotable;
 }
 
 Derivation declaration(size_t offset, byte precedence, DerivsTable table) in {
@@ -47,122 +47,123 @@ Derivation declaration(size_t offset, byte precedence, DerivsTable table) in {
 } body {
 	Derivation part1, part2, part3;
 	// Declaration = Identifier '=' Rule
-	if ((part1 = identifier(offset, 0, table)).success &&
-	  (part2 = symbol(part1.offset, 0, table)).success &&
+	if ((part1 = table[offset, Nonterminal.identifier, 0]).success &&
+	  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 	  part2._dstring == "=" &&
-	  (part3 = rule(part2.offset, 0, table)).success) {
+	  (part3 = table[part2.offset, Nonterminal.rule, 0]).success) {
 		return Derivation(part3.offset);
 	}
 	return Derivation();
 }
 
 Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence >= 0 && precedence < 999);
+	assert(precedence >= 0 && precedence < 8);
 } body {
 	Derivation part1, part2, part3;
+	offset = skipwhitespace(offset, table);
 	switch (precedence) {
 	case 0:
 		// Rule = Rule "/<" Rule %l
-		if ((part1 = rule(offset, -1, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "/<" &&
-		  (part3 = rule(part2.offset, -1, table)).success) {
+		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
 			return Derivation(part3.offset);
 		}
 		goto case;
 	case 1:
 		// Rule = Rule '/' Rule %l
-		if ((part1 = rule(offset, -1, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "/" &&
-		  (part3 = rule(part2.offset, -1, table)).success) {
+		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
 			return Derivation(part3.offset);
 		}
 		goto case;
 	case 2:
 		// Rule = Rule '|' Rule %l
-		if ((part1 = rule(offset, -1, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "|" &&
-		  (part3 = rule(part2.offset, -1, table)).success) {
+		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
 			return Derivation(part3.offset);
 		}
 		goto case;
 	case 3:
 		// Rule = Rule Function %n
-		if ((part1 = rule(offset, 4, table)).success &&
-		  (part2 = _function(part1.offset, 0, table)).success) {
+		if ((part1 = table[offset, Nonterminal.rule, 4]).success &&
+		  (part2 = table[part1.offset, Nonterminal._function, 0]).success) {
 			return Derivation(part2.offset);
 		}
 		goto case;
 	case 4:
 		// Rule = '&' Rule %n
-		if ((part1 = symbol(offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "&" &&
-		  (part2 = rule(part1.offset, 5, table)).success) {
+		  (part2 = table[part1.offset, Nonterminal.rule, 5]).success) {
 			return Derivation(part2.offset);
 		}
 		// Rule = '!' Rule %n
-		else if ((part1 = symbol(offset, 0, table)).success &&
+		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "!" &&
-		  (part2 = rule(part1.offset, 5, table)).success) {
+		  (part2 = table[part1.offset, Nonterminal.rule, 5]).success) {
 			return Derivation(part2.offset);
 		}
 		// Rule = '&' Function %n
-		else if ((part1 = symbol(offset, 0, table)).success &&
+		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "&" &&
-		  (part2 = _function(part1.offset, 0, table)).success) {
+		  (part2 = table[part1.offset, Nonterminal._function, 0]).success) {
 			return Derivation(part2.offset);
 		}
 		goto case;
 	case 5:
 		// Rule = Rule '*' %n
-		if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "*") {
 			return Derivation(part2.offset);
 		}
 		// Rule = Rule '+' %n
-		else if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		else if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "+") {
 			return Derivation(part2.offset);
 		}
 		// Rule = Rule '?' %n
-		else if ((part1 = rule(offset, 6, table)).success &&
-		  (part2 = symbol(part1.offset, 0, table)).success &&
+		else if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "?") {
 			return Derivation(part2.offset);
 		}
 		goto case;
 	case 6:
 		// Rule = Rule Rule %l
-		if ((part1 = rule(offset, -1, table)).success &&
-		  (part2 = rule(part1.offset, -1, table)).success) {
+		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		  (part2 = table[part1.offset, Nonterminal.rule, -1]).success) {
 			return Derivation(part2.offset);
 		}
 		goto case;
 	case 7:
 		// Rule = '(' Rule ')' %p
-		if ((part1 = symbol(offset, 0, table)).success &&
+		if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "(" &&
-		  (part2 = rule(part1.offset, 0, table)).success &&
-		  (part3 = symbol(part2.offset, 0, table)).success &&
+		  (part2 = table[part1.offset, Nonterminal.rule, 0]).success &&
+		  (part3 = table[part2.offset, Nonterminal.symbol, 0]).success &&
 		  part3._dstring == ")") {
 			return Derivation(part3.offset);
 		}
 		// Rule = Identifier
-		else if ((part1 = identifier(offset, 0, table)).success) {
+		else if ((part1 = table[offset, Nonterminal.identifier, 0]).success) {
 			return Derivation(part1.offset);
 		}
 		// Rule = Literal
-		else if ((part1 = literal(offset, 0, table)).success) {
+		else if ((part1 = table[offset, Nonterminal.literal, 0]).success) {
 			return Derivation(part1.offset);
 		}
 		// Rule = '(' ')'
-		else if ((part1 = symbol(offset, 0, table)).success &&
+		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "(" &&
-		  (part2 = symbol(offset, 0, table)).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == ")") {
 			return Derivation(part2.offset);
 		}
@@ -171,13 +172,63 @@ Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
 	}
 }
 
-Derivation _function(size_t offset, byte precedence, DerivsTable table) {
+Derivation _function(size_t offset, byte precedence, DerivsTable table) in {
+	assert(precedence == 0);
+} body {
+	Derivation part1, part2;
+	// Function = '@' Identifier
+	if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
+	  part1._dstring == "@" &&
+	  (part2 = table[part1.offset, Nonterminal.identifier, 0]).success) {
+		return Derivation(part2.offset);
+	}
+	// Function = Rawcode
+	else if ((part1 = table[offset, Nonterminal.rawcode, 0]).success) {
+		return Derivation(part1.offset);
+	}
 	return Derivation();
 }
 
 Derivation identifier(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
+	offset = skipwhitespace(offset, table);
+	return Derivation();
+}
+
+Derivation rawcode(size_t offset, byte precedence, DerivsTable table) in {
+	assert(precedence == 0);
+} body {
+	static size_t nestedblock(size_t offset, DerivsTable table) {
+		dchar cur;
+		try {
+			cur = table.input[offset];
+			while (cur != '}') {
+				if (cur == '{') {
+					offset = nestedblock(offset + 1, table);
+				} else {
+					offset++;
+				}
+				cur = table.input[offset];
+			}
+			return offset + 1;
+		} catch (OutOfInputException e) {
+			// syntax error: unterminated block
+			return -1;
+		}
+		assert(0);
+	}
+
+	size_t end;
+	try {
+		offset = skipwhitespace(offset, table);
+		if (table.input[offset] == '{') {
+			end = nestedblock(offset + 1, table);
+			return Derivation(end, table.input[offset .. end]);
+		}
+	} catch (OutOfInputException e) {
+		return Derivation();
+	}
 	return Derivation();
 }
 
@@ -191,6 +242,7 @@ Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
 	assert(precedence == 0);
 } body {
 	try {
+		offset = skipwhitespace(offset, table);
 		switch (table.input[offset]) {
 		case '!':
 		case '#':
@@ -251,7 +303,7 @@ Derivation whitespace(size_t offset, byte precedence, DerivsTable table) in {
 }
 
 size_t skipwhitespace(size_t offset, DerivsTable table) {
-	Derivation output = whitespace(offset, 0, table);
+	Derivation output = table[offset, Nonterminal.whitespace, 0];
 	if (output.success) {
 		return output.offset;
 	} else {
@@ -309,6 +361,7 @@ Derivation blockcomment(size_t offset, byte precedence, DerivsTable table) in {
 				return Derivation(end + 2, table.input[offset .. end + 2]);
 			} catch (OutOfInputException e) {
 				// syntax error: unterminated block comment
+				return Derivation(table.input.available, table.input[offset .. table.input.available]);
 			}
 		}
 	} catch (OutOfInputException e) {
@@ -335,7 +388,7 @@ Derivation nestingcomment(size_t offset, byte precedence, DerivsTable table) in 
 			return offset + 2;
 		} catch (OutOfInputException e) {
 			// syntax error: unterminated nesting comment
-			return -1;
+			return offset;
 		}
 		assert(0);
 	}
