@@ -13,13 +13,8 @@ struct Derivation {
 		_failure
 	}
 
-	union Value {
-		dstring _dstring;
-	}
-
 	size_t offset;
 	Type type = Type._failure;
-	Value value;
 
 	this(size_t offset) {
 		this.offset = offset;
@@ -41,6 +36,13 @@ struct Derivation {
 	@property bool success() const {
 		return type != Type._failure;
 	}
+
+private:
+	union Value {
+		dstring _dstring;
+	}
+
+	Value value;
 }
 
 interface InputBuffer {
