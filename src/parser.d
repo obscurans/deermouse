@@ -4,7 +4,7 @@ import interfaces;
 import std.ascii;
 
 private:
-enum Nonterminal : Derivation function(size_t, byte, DerivsTable) {
+enum Nonterminal : Derivation function(size_t, DerivsTable, CallStack = null) {
 	declaration = &.declaration,
 	rule = &.rule,
 	_function = &._function,
@@ -17,6 +17,25 @@ enum Nonterminal : Derivation function(size_t, byte, DerivsTable) {
 	blockcomment = &.blockcomment,
 	nestingcomment = &.nestingcomment,
 	lineterminator = &.lineterminator
+}
+
+enum Ntlrecursive : bool { // which nonterminals may be (possibly indirectly) left recursive, precomputed
+	declaration = false,
+	rule = true,
+	_function = false,
+	identifier = false,
+	rawcode = false,
+	literal = false,
+	symbol = false,
+	whitespace = false,
+	linecomment = false,
+	blockcomment = false,
+	nestingcomment = false,
+	lineterminator = false
+}
+
+class CallStack {
+	byte precedence;
 }
 
 class DerivsTable {
@@ -33,7 +52,7 @@ class DerivsTable {
 		if (index in memotable) {
 			return memotable[index];
 		} else {
-			return memotable[index] = index.type(index.offset, index.precedence, this);
+			return memotable[index] = index.type(index.offset, this);
 		}
 	}
 
@@ -42,106 +61,111 @@ class DerivsTable {
 	}
 }
 
-Derivation declaration(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation declaration(size_t offset, DerivsTable table, CallStack stack = null) {
 	Derivation part1, part2, part3;
 	// Declaration = Identifier '=' Rule
 	if ((part1 = table[offset, Nonterminal.identifier, 0]).success &&
 	  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 	  part2._dstring == "=" &&
 	  (part3 = table[part2.offset, Nonterminal.rule, 0]).success) {
-		return Derivation(part3.offset);
+		return new Derivation(part3.offset);
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence >= 0 && precedence < 8);
+Derivation rule(size_t offset, DerivsTable table, CallStack stack) in {
+	assert(stack !is null);
 } body {
 	Derivation part1, part2, part3;
 	offset = skipwhitespace(offset, table);
-	switch (precedence) {
+	switch (stack.precedence) {
 	case 0:
 		// Rule = Rule "/<" Rule %l
-		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		if ((part1 = table[offset, Nonterminal.rule, 0]).success &&
 		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "/<" &&
-		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
-			return Derivation(part3.offset);
+		  (part3 = table[part2.offset, Nonterminal.rule, 1]).success) {
+			return new Derivation(part3.offset);
 		}
+		stack.precedence++;
 		goto case;
 	case 1:
 		// Rule = Rule '/' Rule %l
-		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		if ((part1 = table[offset, Nonterminal.rule, 1]).success &&
 		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "/" &&
-		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
-			return Derivation(part3.offset);
+		  (part3 = table[part2.offset, Nonterminal.rule, 2]).success) {
+			return new Derivation(part3.offset);
 		}
+		stack.precedence++;
 		goto case;
 	case 2:
 		// Rule = Rule '|' Rule %l
-		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
+		if ((part1 = table[offset, Nonterminal.rule, 2]).success &&
 		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == "|" &&
-		  (part3 = table[part2.offset, Nonterminal.rule, -1]).success) {
-			return Derivation(part3.offset);
+		  (part3 = table[part2.offset, Nonterminal.rule, 3]).success) {
+			return new Derivation(part3.offset);
 		}
+		stack.precedence++;
 		goto case;
 	case 3:
 		// Rule = Rule Function %n
 		if ((part1 = table[offset, Nonterminal.rule, 4]).success &&
 		  (part2 = table[part1.offset, Nonterminal._function, 0]).success) {
-			return Derivation(part2.offset);
+			return new Derivation(part2.offset);
 		}
+		stack.precedence++;
 		goto case;
 	case 4:
+		// Rule = Rule Rule %l
+		if ((part1 = table[offset, Nonterminal.rule, 4]).success &&
+		  (part2 = table[part1.offset, Nonterminal.rule, 5]).success) {
+			return new Derivation(part2.offset);
+		}
+		stack.precedence++;
+		goto case;
+	case 5:
 		// Rule = '&' Rule %n
 		if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "&" &&
-		  (part2 = table[part1.offset, Nonterminal.rule, 5]).success) {
-			return Derivation(part2.offset);
+		  (part2 = table[part1.offset, Nonterminal.rule, 6]).success) {
+			return new Derivation(part2.offset);
 		}
 		// Rule = '!' Rule %n
 		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "!" &&
-		  (part2 = table[part1.offset, Nonterminal.rule, 5]).success) {
-			return Derivation(part2.offset);
+		  (part2 = table[part1.offset, Nonterminal.rule, 6]).success) {
+			return new Derivation(part2.offset);
 		}
 		// Rule = '&' Function %n
 		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "&" &&
 		  (part2 = table[part1.offset, Nonterminal._function, 0]).success) {
-			return Derivation(part2.offset);
+			return new Derivation(part2.offset);
 		}
-		goto case;
-	case 5:
-		// Rule = Rule '*' %n
-		if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
-		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
-		  part2._dstring == "*") {
-			return Derivation(part2.offset);
-		}
-		// Rule = Rule '+' %n
-		else if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
-		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
-		  part2._dstring == "+") {
-			return Derivation(part2.offset);
-		}
-		// Rule = Rule '?' %n
-		else if ((part1 = table[offset, Nonterminal.rule, 6]).success &&
-		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
-		  part2._dstring == "?") {
-			return Derivation(part2.offset);
-		}
+		stack.precedence++;
 		goto case;
 	case 6:
-		// Rule = Rule Rule %l
-		if ((part1 = table[offset, Nonterminal.rule, -1]).success &&
-		  (part2 = table[part1.offset, Nonterminal.rule, -1]).success) {
-			return Derivation(part2.offset);
+		// Rule = Rule '*' %n
+		if ((part1 = table[offset, Nonterminal.rule, 7]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
+		  part2._dstring == "*") {
+			return new Derivation(part2.offset);
 		}
+		// Rule = Rule '+' %n
+		else if ((part1 = table[offset, Nonterminal.rule, 7]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
+		  part2._dstring == "+") {
+			return new Derivation(part2.offset);
+		}
+		// Rule = Rule '?' %n
+		else if ((part1 = table[offset, Nonterminal.rule, 7]).success &&
+		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
+		  part2._dstring == "?") {
+			return new Derivation(part2.offset);
+		}
+		stack.precedence++;
 		goto case;
 	case 7:
 		// Rule = '(' Rule ')' %p
@@ -150,55 +174,49 @@ Derivation rule(size_t offset, byte precedence, DerivsTable table) in {
 		  (part2 = table[part1.offset, Nonterminal.rule, 0]).success &&
 		  (part3 = table[part2.offset, Nonterminal.symbol, 0]).success &&
 		  part3._dstring == ")") {
-			return Derivation(part3.offset);
+			return new Derivation(part3.offset);
 		}
 		// Rule = Identifier
 		else if ((part1 = table[offset, Nonterminal.identifier, 0]).success) {
-			return Derivation(part1.offset);
+			return new Derivation(part1.offset);
 		}
 		// Rule = Literal
 		else if ((part1 = table[offset, Nonterminal.literal, 0]).success) {
-			return Derivation(part1.offset);
+			return new Derivation(part1.offset);
 		}
 		// Rule = '(' ')'
 		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 		  part1._dstring == "(" &&
 		  (part2 = table[part1.offset, Nonterminal.symbol, 0]).success &&
 		  part2._dstring == ")") {
-			return Derivation(part2.offset);
+			return new Derivation(part2.offset);
 		}
-		return Derivation();
+		return Derivation.init;
 	default: assert(0);
 	}
 }
 
-Derivation _function(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation _function(size_t offset, DerivsTable table, CallStack stack = null) {
 	Derivation part1, part2;
 	// Function = '@' Identifier
 	if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
 	  part1._dstring == "@" &&
 	  (part2 = table[part1.offset, Nonterminal.identifier, 0]).success) {
-		return Derivation(part2.offset);
+		return new Derivation(part2.offset);
 	}
 	// Function = Rawcode
 	else if ((part1 = table[offset, Nonterminal.rawcode, 0]).success) {
-		return Derivation(part1.offset);
+		return new Derivation(part1.offset);
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation identifier(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation identifier(size_t offset, DerivsTable table, CallStack stack = null) {
 	offset = skipwhitespace(offset, table);
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation rawcode(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation rawcode(size_t offset, DerivsTable table, CallStack stack = null) {
 	static size_t nestedblock(size_t offset, DerivsTable table) {
 		dchar cur;
 		try {
@@ -224,23 +242,19 @@ Derivation rawcode(size_t offset, byte precedence, DerivsTable table) in {
 		offset = skipwhitespace(offset, table);
 		if (table.input[offset] == '{') {
 			end = nestedblock(offset + 1, table);
-			return Derivation(end, table.input[offset .. end]);
+			return new Derivation(end, table.input[offset .. end]);
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation literal(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
-	return Derivation();
+Derivation literal(size_t offset, DerivsTable table, CallStack stack = null) {
+	return Derivation.init;
 }
 
-Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation symbol(size_t offset, DerivsTable table, CallStack stack = null) {
 	try {
 		offset = skipwhitespace(offset, table);
 		switch (table.input[offset]) {
@@ -254,12 +268,12 @@ Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
 		case '*':
 		case '+':
 		case '.':
-			return Derivation(offset + 1, table.input[offset .. offset + 1]);
+			return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 		case '/':
 			if (table.input[offset + 1] == '<') {
-				return Derivation(offset + 2, table.input[offset .. offset + 2]);
+				return new Derivation(offset + 2, table.input[offset .. offset + 2]);
 			} else {
-				return Derivation(offset + 1, table.input[offset .. offset + 1]);
+				return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 			}
 		case '<':
 		case '=':
@@ -270,35 +284,33 @@ Derivation symbol(size_t offset, byte precedence, DerivsTable table) in {
 		case '{':
 		case '|':
 		case '}':
-			return Derivation(offset + 1, table.input[offset .. offset + 1]);
-		default: return Derivation();
+			return new Derivation(offset + 1, table.input[offset .. offset + 1]);
+		default: return Derivation.init;
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
 }
 
-Derivation whitespace(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation whitespace(size_t offset, DerivsTable table, CallStack stack = null) {
 	size_t end = offset;
 	Derivation part1;
 	try {
 		while ((isWhite(table.input[offset]) && (end++, 1)) ||
-		  ((part1 = linecomment(end, 0, table)).success && (end = part1.offset, 1)) ||
-		  ((part1 = blockcomment(end, 0, table)).success && (end = part1.offset, 1)) ||
-		  ((part1 = nestingcomment(end, 0, table)).success && (end = part1.offset, 1))) {};
+		  ((part1 = linecomment(end, table)).success && (end = part1.offset, 1)) ||
+		  ((part1 = blockcomment(end, table)).success && (end = part1.offset, 1)) ||
+		  ((part1 = nestingcomment(end, table)).success && (end = part1.offset, 1))) {};
 	} catch (OutOfInputException e) {
 		if (offset == end) {
-			return Derivation();
+			return Derivation.init;
 		} else {
-			return Derivation(end, table.input[offset .. end]);
+			return new Derivation(end, table.input[offset .. end]);
 		}
 	}
 	if (offset == end) {
-		return Derivation();
+		return Derivation.init;
 	} else {
-		return Derivation(end, table.input[offset .. end]);
+		return new Derivation(end, table.input[offset .. end]);
 	}
 }
 
@@ -311,9 +323,7 @@ size_t skipwhitespace(size_t offset, DerivsTable table) {
 	}
 }
 
-Derivation linecomment(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation linecomment(size_t offset, DerivsTable table, CallStack stack = null) {
 	size_t end;
 	dchar cur;
 	try {
@@ -326,27 +336,25 @@ Derivation linecomment(size_t offset, byte precedence, DerivsTable table) in {
 					cur = table.input[end];
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(end, table.input[offset .. end]);
+				return new Derivation(end, table.input[offset .. end]);
 			}
 			try {
 				if (cur == '\r' && table.input[end + 1] == '\n') {
-					return Derivation(end + 2, table.input[offset .. end + 2]);
+					return new Derivation(end + 2, table.input[offset .. end + 2]);
 				} else {
-					return Derivation(end + 1, table.input[offset .. end + 1]);
+					return new Derivation(end + 1, table.input[offset .. end + 1]);
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(end + 1, table.input[offset .. end + 1]);
+				return new Derivation(end + 1, table.input[offset .. end + 1]);
 			}
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation blockcomment(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation blockcomment(size_t offset, DerivsTable table, CallStack stack = null) {
 	size_t end;
 	dchar cur;
 	try {
@@ -358,21 +366,19 @@ Derivation blockcomment(size_t offset, byte precedence, DerivsTable table) in {
 					offset++;
 					cur = table.input[end];
 				}
-				return Derivation(end + 2, table.input[offset .. end + 2]);
+				return new Derivation(end + 2, table.input[offset .. end + 2]);
 			} catch (OutOfInputException e) {
 				// syntax error: unterminated block comment
-				return Derivation(table.input.available, table.input[offset .. table.input.available]);
+				return new Derivation(table.input.available, table.input[offset .. table.input.available]);
 			}
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation nestingcomment(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation nestingcomment(size_t offset, DerivsTable table, CallStack stack = null) {
 	static size_t nestedcomment(size_t offset, DerivsTable table) {
 		dchar cur;
 		try {
@@ -397,34 +403,32 @@ Derivation nestingcomment(size_t offset, byte precedence, DerivsTable table) in 
 	try {
 		if (table.input[offset] == '/' && table.input[offset + 1] == '+') {
 			end = nestedcomment(offset + 2, table);
-			return Derivation(end, table.input[offset .. end]);
+			return new Derivation(end, table.input[offset .. end]);
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
-	return Derivation();
+	return Derivation.init;
 }
 
-Derivation lineterminator(size_t offset, byte precedence, DerivsTable table) in {
-	assert(precedence == 0);
-} body {
+Derivation lineterminator(size_t offset, DerivsTable table, CallStack stack = null) {
 	try {
 		if (table.input[offset] == '\r') {
 			try {
 				if (table.input[offset + 1] == '\n') {
-					return Derivation(offset + 2, table.input[offset .. offset + 2]);
+					return new Derivation(offset + 2, table.input[offset .. offset + 2]);
 				} else {
-					return Derivation(offset + 1, table.input[offset .. offset + 1]);
+					return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 				}
 			} catch (OutOfInputException e) {
-				return Derivation(offset + 1, table.input[offset .. offset + 1]);
+				return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 			}
 		} else if (table.input[offset] == '\n' || table.input[offset] == '\u2028' || table.input[offset] == '\u2029') {
-			return Derivation(offset + 1, table.input[offset .. offset + 1]);
+			return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 		}
 	} catch (OutOfInputException e) {
-		return Derivation();
+		return Derivation.init;
 	}
-	return Derivation();
+	return Derivation.init;
 }
 

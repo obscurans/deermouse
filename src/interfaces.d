@@ -6,15 +6,15 @@ class OutOfInputException : object.Exception {
 	}
 };
 
-struct Derivation {
+final class Derivation {
 	enum Type {
-		_dstring,
+		failure,
 		_null,
-		_failure
+		_dstring
 	}
 
 	size_t offset;
-	Type type = Type._failure;
+	Type type = Type.failure;
 
 	this(size_t offset) {
 		this.offset = offset;
@@ -33,8 +33,13 @@ struct Derivation {
 		return value._dstring;
 	}
 
+	@property nothrow dstring _dstring(dstring value) {
+		assert(type == Type._dstring);
+		return this.value._dstring = value;
+	}
+
 	@property nothrow bool success() const {
-		return type != Type._failure;
+		return type != Type.failure;
 	}
 
 private:
