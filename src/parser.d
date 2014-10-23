@@ -212,7 +212,27 @@ Derivation _function(size_t offset, DerivsTable table, CallStack stack = null) {
 }
 
 Derivation identifier(size_t offset, DerivsTable table, CallStack stack = null) {
-	offset = skipwhitespace(offset, table);
+	size_t end;
+	dchar cur;
+	try {
+		offset = skipwhitespace(offset, table);
+		cur = table.input[offset];
+		if (isAlpha(cur) || cur == '_') {
+			try {
+				end = offset + 1;
+				cur = table.input[end];
+				while (isAlphaNum(cur) || cur == '_') {
+					end++;
+					cur = table.input[end];
+				}
+				return new Derivation(end, table.input[offset .. end]);
+			} catch (OutOfInputException e) {
+				return new Derivation(end, table.input[offset .. end]);
+			}
+		}
+	} catch (OutOfInputException e) {
+		return Derivation.init;
+	}
 	return Derivation.init;
 }
 
@@ -251,6 +271,7 @@ Derivation rawcode(size_t offset, DerivsTable table, CallStack stack = null) {
 }
 
 Derivation literal(size_t offset, DerivsTable table, CallStack stack = null) {
+	offset = skipwhitespace(offset, table);
 	return Derivation.init;
 }
 
@@ -270,9 +291,13 @@ Derivation symbol(size_t offset, DerivsTable table, CallStack stack = null) {
 		case '.':
 			return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 		case '/':
-			if (table.input[offset + 1] == '<') {
-				return new Derivation(offset + 2, table.input[offset .. offset + 2]);
-			} else {
+			try {
+				if (table.input[offset + 1] == '<') {
+					return new Derivation(offset + 2, table.input[offset .. offset + 2]);
+				} else {
+					return new Derivation(offset + 1, table.input[offset .. offset + 1]);
+				}
+			} catch (OutOfInputException e) {
 				return new Derivation(offset + 1, table.input[offset .. offset + 1]);
 			}
 		case '<':
