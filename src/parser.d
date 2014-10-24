@@ -11,6 +11,8 @@ enum Nonterminal : Derivation function(size_t, DerivsTable, CallStack = null) {
 	identifier = &.identifier,
 	rawcode = &.rawcode,
 	literal = &.literal,
+	characterlit = &.characterlit,
+	stringlit = &.stringlit,
 	symbol = &.symbol,
 	whitespace = &.whitespace,
 	linecomment = &.linecomment,
@@ -178,11 +180,11 @@ Derivation rule(size_t offset, DerivsTable table, CallStack stack) in {
 		}
 		// Rule = Identifier
 		else if ((part1 = table[offset, Nonterminal.identifier, 0]).success) {
-			return new Derivation(part1.offset);
+			return part1;
 		}
 		// Rule = Literal
 		else if ((part1 = table[offset, Nonterminal.literal, 0]).success) {
-			return new Derivation(part1.offset);
+			return part1;
 		}
 		// Rule = '(' ')'
 		else if ((part1 = table[offset, Nonterminal.symbol, 0]).success &&
@@ -206,7 +208,7 @@ Derivation _function(size_t offset, DerivsTable table, CallStack stack = null) {
 	}
 	// Function = Rawcode
 	else if ((part1 = table[offset, Nonterminal.rawcode, 0]).success) {
-		return new Derivation(part1.offset);
+		return part1;
 	}
 	return Derivation.init;
 }
@@ -271,8 +273,107 @@ Derivation rawcode(size_t offset, DerivsTable table, CallStack stack = null) {
 }
 
 Derivation literal(size_t offset, DerivsTable table, CallStack stack = null) {
-	offset = skipwhitespace(offset, table);
+	Derivation part1;
+	// Literal = Characterlit
+	if ((part1 = table[offset, Nonterminal.characterlit, 0]).success) {
+		return part1;
+	}
+	// Literal = Stringlit
+	else if ((part1 = table[offset, Nonterminal.stringlit, 0]).success) {
+		return part1;
+	}
 	return Derivation.init;
+}
+
+Derivation characterlit(size_t offset, DerivsTable table, CallStack stack = null) {
+	size_t end;
+	try {
+		offset = skipwhitespace(offset, table);
+		if (table.input[offset] == '\'') {
+			if (table.input[offset + 1] == '\\') {
+				// any valid escape sequence
+				if ((end = escapechar(offset + 1, table)) != offset + 1 && table.input[end] == '\'') {
+					return new Derivation(end + 1, table.input[offset .. end + 1]);
+				} else {
+					return Derivation.init;
+				}
+			} else if (table.input[offset + 1] == '\'') {
+				// syntax error, empty character literal
+				return Derivation.init;
+			} else if (table.input[offset + 2] == '\'') {
+				// any unicode character
+				return new Derivation(offset + 3, table.input[offset .. offset + 3]);
+			}
+		}
+	} catch (OutOfInputException e) {
+		return Derivation.init;
+	}
+	return Derivation.init;
+}
+
+Derivation stringlit(size_t offset, DerivsTable table, CallStack stack = null) {
+	try {
+	} catch (OutOfInputException e) {
+		return Derivation.init;
+	}
+}
+
+size_t escapechar(size_t offset, DerivsTable table) {
+	try {
+		switch (table.input[offset + 1]) {
+		case '\'':
+		case '\"':
+		case '?':
+		case '\\':
+		case '0':
+		case 'a':
+		case 'b':
+		case 'f':
+		case 'n':
+		case 'r':
+		case 't':
+		case 'v':
+			return offset + 2;
+		case '0': .. case '7': // \Octal, \OctalOctal, \OctalOctalOctal
+			try {
+				if (isOctalDigit(table.input[offset + 2])) {
+					try {
+						if (isOctalDigit(table.input[offset + 3])) {
+							return offset + 4;
+						}
+						return offset + 3;
+					} catch (OutOfInputException e) {
+						return offset + 3;
+					}
+				}
+				return offset + 2;
+			} catch (OutOfInputException e) {
+				return offset + 2;
+			}
+		case 'x': // \xHexHex
+			if (isHexDigit(table.input[offset + 2]) && isHexDigit(table.input[offset + 3])) {
+				return offset + 4;
+			}
+			return offset;
+		case 'u': // \uHexHexHexHex
+			foreach (i; offset + 2 .. offset + 6) {
+				if (!isHexDigit(table.input[i])) {
+					return offset;
+				}
+			}
+			return offset + 6;
+		case 'U': // \UHexHexHexHexHexHexHexHex
+			foreach (i; offset + 2 .. offset + 10) {
+				if (!isHexDigit(table.input[i])) {
+					return offset;
+				}
+			}
+			return offset + 10;
+		default: return offset;
+		}
+	} catch (OutOfInputException e) {
+		return offset;
+	}
 }
 
 Derivation symbol(size_t offset, DerivsTable table, CallStack stack = null) {
