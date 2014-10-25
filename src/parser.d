@@ -1,4 +1,4 @@
-/* Copyright (C) 2014 Jeffrey Tsang. All rights reserved. See /LICENCE.md */
+/** Copyright (C) 2014 Jeffrey Tsang. All rights reserved. See /LICENCE.md */
 
 import interfaces;
 import std.ascii;
@@ -28,6 +28,8 @@ enum Ntlrecursive : bool { // which nonterminals may be (possibly indirectly) le
 	identifier = false,
 	rawcode = false,
 	literal = false,
+	characterlit = false,
+	stringlit = false,
 	symbol = false,
 	whitespace = false,
 	linecomment = false,
