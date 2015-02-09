@@ -1,4 +1,5 @@
-/** Copyright (C) 2014 Jeffrey Tsang. All rights reserved. See /LICENCE.md */
+/** Copyright (C) 2014-2015 Jeffrey Tsang. All rights reserved.
+ *  See /LICENCE.md */
 
 class OutOfInputException : object.Exception {
 	this() {
@@ -6,11 +7,14 @@ class OutOfInputException : object.Exception {
 	}
 };
 
+/* Semantic derivation for a nonterminal */
 final class Derivation {
+	/* Value type tag */
 	enum Type {
 		failure,
 		_null,
-		_dstring
+		_dchar,
+		_dstring,
 	}
 
 	size_t offset;
@@ -22,10 +26,26 @@ final class Derivation {
 		value._dstring = null;
 	}
 
+	this(size_t offset, dchar value) {
+		this.offset = offset;
+		type = Type._dchar;
+		this.value._dchar = value;
+	}
+
 	this(size_t offset, dstring value) {
 		this.offset = offset;
 		type = Type._dstring;
 		this.value._dstring = value;
+	}
+
+	@property nothrow dchar _dchar() const {
+		assert(type == Type._dchar);
+		return value._dchar;
+	}
+
+	@property nothrow dchar _dchar(dchar value) {
+		assert(type == Type._dchar);
+		return this.value._dchar = value;
 	}
 
 	@property nothrow dstring _dstring() const {
@@ -43,7 +63,9 @@ final class Derivation {
 	}
 
 private:
+	/* Tagged union for semantic values */
 	union Value {
+		dchar _dchar;
 		dstring _dstring;
 	}
 
