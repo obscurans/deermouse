@@ -11,7 +11,7 @@ class OutOfInputException : object.Exception {
 
 /* Semantic derivation for a nonterminal
  * TODO: implement mixin template for adding value types */
-final class Derivation {
+struct Derivation {
 	/* Value type tag */
 	enum Type {
 		failure,
@@ -82,7 +82,7 @@ final class Derivation {
 		return type != Type.failure;
 	}
 
-	override string toString() const {
+	string toString() const {
 		string ret = format("%d:", offset);
 		final switch (type) {
 		case Type.failure: return ret ~ "failure";

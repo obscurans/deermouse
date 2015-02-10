@@ -159,7 +159,7 @@ class DerivsTable {
      * its success */
 	bool matchString(out Derivation deriv, size_t offset, dstring characters) {
 		if (this[offset, characters]) {
-			deriv = new Derivation(offset + characters.length, characters);
+			deriv = Derivation(offset + characters.length, characters);
 			return true;
 		} else {
 			deriv = Derivation.init;
@@ -170,7 +170,7 @@ class DerivsTable {
 	/* Thin wrapper for attempting to match a single unadorned raw character */
 	bool matchCharacter(out Derivation deriv, size_t offset, dchar character) {
 		if (this[offset, character]) {
-			deriv = new Derivation(offset + 1, character);
+			deriv = Derivation(offset + 1, character);
 			return true;
 		} else {
 			deriv = Derivation.init;
@@ -204,7 +204,7 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		  table.matchCharacter(part2, part1.offset, '+') &&
 		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 0)) {
 			debug(2) writefln("%s matched Expression{%d-%d:%g} '+' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real + part3._real);
-			return new Derivation(part3.offset, part1._real + part3._real);
+			return Derivation(part3.offset, part1._real + part3._real);
 		}
 
 		// Expression = Expression '-' Expression %l
@@ -213,12 +213,11 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		  table.matchCharacter(part2, part1.offset, '-') &&
 		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 0)) {
 			debug(2) writefln("%s matched Expression{%d-%d:%g} '-' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real - part3._real);
-			return new Derivation(part3.offset, part1._real - part3._real);
+			return Derivation(part3.offset, part1._real - part3._real);
 		}
 
 		debug(3) writefln("%s falling through precedence level", debugPrint);
-		stack.precedence++;
-		goto case;
+		return table[offset, Nonterminal.expression, 1];
 	case 1:
 		// Expression = Expression '*' Expression %l
 		debug(3) writefln("%s trying Expression(2) '*' Expression(1)", debugPrint);
@@ -226,12 +225,11 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		  table.matchCharacter(part2, part1.offset, '*') &&
 		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
 			debug(2) writefln("%s matched Expression{%d-%d:%g} '*' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real * part3._real);
-			return new Derivation(part3.offset, part1._real * part3._real);
+			return Derivation(part3.offset, part1._real * part3._real);
 		}
 
 		debug(3) writefln("%s falling through precedence level", debugPrint);
-		stack.precedence++;
-		goto case;
+		return table[offset, Nonterminal.expression, 2];
 	case 2:
 		// Expression = '(' Expression %p 0 ')'
 		debug(3) writefln("%s trying '(' Expression(0) ')'", debugPrint);
@@ -239,7 +237,7 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		  table.matchNonterminal(part2, part1.offset, Nonterminal.expression, 0) &&
 		  table.matchCharacter(part3, part2.offset, ')')) {
 			debug(2) writefln("%s matched '(' Expression{%d-%d:%g} ')'", debugPrint, part1.offset, part2.offset, part2._real);
-			return new Derivation(part3.offset, part2._real);
+			return Derivation(part3.offset, part2._real);
 		}
 
 		// Expression = Digit
@@ -267,7 +265,7 @@ Derivation digit(size_t offset, DerivsTable table, CallStack stack = null) {
 	foreach (dchar i; '0' .. '9') {
 		if (table.matchCharacter(part1, offset, i)) {
 			debug(2) writefln("%s matched %c", debugPrint, i);
-			return new Derivation(part1.offset, cast(real)(i - '0'));
+			return Derivation(part1.offset, cast(real)(i - '0'));
 		}
 	}
 
