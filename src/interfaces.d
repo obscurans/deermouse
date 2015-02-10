@@ -1,5 +1,7 @@
-/** Copyright (C) 2014-2015 Jeffrey Tsang. All rights reserved.
- *  See /LICENCE.md */
+/** Copyright (C) 2014-2015 Jeffrey Tsang.
+ *  All rights reserved. See /LICENCE.md */
+
+import std.string;
 
 class OutOfInputException : object.Exception {
 	this() {
@@ -7,7 +9,8 @@ class OutOfInputException : object.Exception {
 	}
 };
 
-/* Semantic derivation for a nonterminal */
+/* Semantic derivation for a nonterminal
+ * TODO: implement mixin template for adding value types */
 final class Derivation {
 	/* Value type tag */
 	enum Type {
@@ -15,6 +18,7 @@ final class Derivation {
 		_null,
 		_dchar,
 		_dstring,
+		_real,
 	}
 
 	size_t offset;
@@ -38,6 +42,12 @@ final class Derivation {
 		this.value._dstring = value;
 	}
 
+	this(size_t offset, real value) {
+		this.offset = offset;
+		type = Type._real;
+		this.value._real = value;
+	}
+
 	@property nothrow dchar _dchar() const {
 		assert(type == Type._dchar);
 		return value._dchar;
@@ -58,8 +68,29 @@ final class Derivation {
 		return this.value._dstring = value;
 	}
 
+	@property nothrow real _real() const {
+		assert(type == Type._real);
+		return value._real;
+	}
+
+	@property nothrow real _real(real value) {
+		assert(type == Type._real);
+		return this.value._real = value;
+	}
+
 	@property nothrow bool success() const {
 		return type != Type.failure;
+	}
+
+	override string toString() const {
+		string ret = format("%d:", offset);
+		final switch (type) {
+		case Type.failure: return ret ~ "failure";
+		case Type._null: return ret ~ "null";
+		case Type._dchar: return ret ~ format("(char)%s", _dchar);
+		case Type._dstring: return ret ~ format("(string)%s",_dstring);
+		case Type._real: return ret ~ format("(real)%g", _real);
+		}
 	}
 
 private:
@@ -67,6 +98,7 @@ private:
 	union Value {
 		dchar _dchar;
 		dstring _dstring;
+		real _real;
 	}
 
 	Value value;
