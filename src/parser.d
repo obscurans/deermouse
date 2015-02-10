@@ -47,6 +47,7 @@ enum Nonterminal : Derivation function(size_t, DerivsTable, CallStack = null) {
 class CallStack {
 	byte precedence;
 
+	/* One-field constructor */
 	this(byte precedence) {
 		this.precedence = precedence;
 	}
@@ -55,20 +56,24 @@ class CallStack {
 /* Main packrat parsing memotable, includes separate nonterminal and string
  * match memotables */
 class DerivsTable {
+	/* Index type for the nonterminal memotable */
 	struct NonterminalIndex {
 		size_t offset;
 		Nonterminal type;
 		byte precedence;
 
+		/* Pretty printer for debugging */
 		string toString() const {
 			return format("%s(%d):%d", type, precedence, offset);
 		}
 	}
 
+	/* Index type for the string matching memotable */
 	struct StringIndex {
 		size_t offset;
 		dstring characters;
 
+		/* Pretty printer for debugging */
 		string toString() const {
 			return format("string(%s):%d", characters, offset);
 		}
@@ -91,18 +96,47 @@ class DerivsTable {
 		stringtable = stringtable.init;
 	}
 
-	/* Memoized function for parsing a nonterminal */
+	/* Memoized function for parsing a nonterminal, handles direct
+	 * left-recursion */
 	Derivation opIndex(NonterminalIndex index) {
 		debug(1) writeln("Retrieving ", index);
 		if (index in memotable) {
 			debug(2) writeln(index, " found in table: ", memotable[index]);
 			return memotable[index]; // Return memoized result
-		} else {
-			/* Call the associated parsing function for the nonterminal, stored
-			 * in type, with the arguments, and memoize result */
-			debug(2) writeln(index, " not found, calling parsing function");
-			return memotable[index] = index.type(index.offset, this, new CallStack(index.precedence));
 		}
+
+		debug(2) writeln(index, " not found, calling parsing function");
+		/* First introduce a guard element to fail the first round of
+		 * left-recursive calls */
+		memotable[index] = Derivation.init;
+		/* Call the associated parsing function for the nonterminal, stored
+		 * in type, with the arguments, for the first parse */
+		Derivation temp = index.type(index.offset, this, new CallStack(index.precedence));
+
+		/* No recursion, memoize result and return */
+		if (!temp.recurse) {
+			return memotable[index] = temp;
+		}
+
+		/* Left recursion handling algorithm */
+		do {
+			/* Memoize current parse result */
+			memotable[index] = temp;
+
+			debug(2) writeln(index, " left recursion detected, reevaluating parsing function");
+			/* Reevaluate parsing function for the nonterminal, which
+			 * will have access to the current parse result to grow the
+			 * left-recursive parse */
+			temp = index.type(index.offset, this, new CallStack(index.precedence));
+
+		/* Termination condition is if the parse fails to grow further
+		 */
+		} while (temp.offset > memotable[index].offset);
+
+		debug(2) writeln(index, " left recursion ended: ", memotable[index].markRecursive(false));
+		/* Unmark recursion on the final parse result, discarding failed
+		 * extending parse, and return it */
+		return memotable[index].markRecursive(false);
 	}
 
 	/* Thin wrapper for array access indexing for a nonterminal */
@@ -178,6 +212,7 @@ class DerivsTable {
 		}
 	}
 
+	/* Pretty printer of entire table contents for debugging */
 	void debugPrint() {
 		writeln("Table contents:");
 		foreach (key, val; memotable) {
@@ -186,75 +221,110 @@ class DerivsTable {
 	}
 }
 
+/* Parsing function for the nonterminal Expression */
 Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 	assert(stack !is null);
 } body {
+	/* Pretty printer for debugging */
 	@property string debugPrint() {
 		return format("expression(%d):%d", stack.precedence, offset);
 	}
 
 	Derivation part1, part2, part3;
+	/* Whether a left-recursive rule has been tried, to mark the result for
+	 * left-recursion handling */
+	bool recurse = false;
 	debug(2) writefln("Parsing %s", debugPrint);
 
 	switch (stack.precedence) {
 	case 0:
 		// Expression = Expression '+' Expression %l
-		debug(3) writefln("%s trying Expression(1) '+' Expression(0)", debugPrint);
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
+		debug(3) writefln("%s trying Expression(0) '+' Expression(1)", debugPrint);
+		recurse = true;
+		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 0) &&
 		  table.matchCharacter(part2, part1.offset, '+') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 0)) {
-			debug(2) writefln("%s matched Expression{%d-%d:%g} '+' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real + part3._real);
-			return Derivation(part3.offset, part1._real + part3._real);
+		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
+			debug(2) writefln("%s matched Expression{%s} '+' Expression{%s} : %g", debugPrint, part1, part3, part1._real + part3._real);
+			return Derivation(part3.offset, part1._real + part3._real, recurse);
 		}
 
 		// Expression = Expression '-' Expression %l
-		debug(3) writefln("%s trying Expression(1) '-' Expression(0)", debugPrint);
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
+		debug(3) writefln("%s trying Expression(0) '-' Expression(1)", debugPrint);
+		recurse = true;
+		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 0) &&
 		  table.matchCharacter(part2, part1.offset, '-') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 0)) {
-			debug(2) writefln("%s matched Expression{%d-%d:%g} '-' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real - part3._real);
-			return Derivation(part3.offset, part1._real - part3._real);
+		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
+			debug(2) writefln("%s matched Expression{%s} '-' Expression{%s} : %g", debugPrint, part1, part3, part1._real - part3._real);
+			return Derivation(part3.offset, part1._real - part3._real, recurse);
 		}
 
 		debug(3) writefln("%s falling through precedence level", debugPrint);
-		return table[offset, Nonterminal.expression, 1];
+		return table[offset, Nonterminal.expression, 1].markRecursive(recurse);
+
 	case 1:
 		// Expression = Expression '*' Expression %l
-		debug(3) writefln("%s trying Expression(2) '*' Expression(1)", debugPrint);
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 2) &&
+		debug(3) writefln("%s trying Expression(1) '*' Expression(2)", debugPrint);
+		recurse = true;
+		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
 		  table.matchCharacter(part2, part1.offset, '*') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
-			debug(2) writefln("%s matched Expression{%d-%d:%g} '*' Expression{%d-%d:%g} : %g", debugPrint, offset, part1.offset, part1._real, part2.offset, part3.offset, part3._real, part1._real * part3._real);
-			return Derivation(part3.offset, part1._real * part3._real);
+		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
+			debug(2) writefln("%s matched Expression{%s} '*' Expression{%s} : %g", debugPrint, part1, part3, part1._real * part3._real);
+			return Derivation(part3.offset, part1._real * part3._real, recurse);
+		}
+
+		// Expression = Expression '/' Expression %l
+		debug(3) writefln("%s trying Expression(1) '/' Expression(2)", debugPrint);
+		recurse = true;
+		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
+		  table.matchCharacter(part2, part1.offset, '/') &&
+		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
+			debug(2) writefln("%s matched Expression{%s} '*' Expression{%s} : %g", debugPrint, part1, part3, part1._real / part3._real);
+			return Derivation(part3.offset, part1._real / part3._real, recurse);
 		}
 
 		debug(3) writefln("%s falling through precedence level", debugPrint);
-		return table[offset, Nonterminal.expression, 2];
+		return table[offset, Nonterminal.expression, 2].markRecursive(recurse);
+
 	case 2:
+		// Expression = Expression '^' Expression %r
+		debug(3) writefln("%s trying Expression(3) '^' Expression(2)", debugPrint);
+		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 3) &&
+		  table.matchCharacter(part2, part1.offset, '^') &&
+		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
+			debug(2) writefln("%s matched Expression{%s} '^' Expression{%s} : %g", debugPrint, part1, part3, part1._real ^^ part3._real);
+			return Derivation(part3.offset, part1._real ^^ part3._real, recurse);
+		}
+
+		debug(3) writefln("%s falling through precedence level", debugPrint);
+		return table[offset, Nonterminal.expression, 3].markRecursive(recurse);
+
+	case 3:
 		// Expression = '(' Expression %p 0 ')'
 		debug(3) writefln("%s trying '(' Expression(0) ')'", debugPrint);
 		if (table.matchCharacter(part1, offset, '(') &&
 		  table.matchNonterminal(part2, part1.offset, Nonterminal.expression, 0) &&
 		  table.matchCharacter(part3, part2.offset, ')')) {
-			debug(2) writefln("%s matched '(' Expression{%d-%d:%g} ')'", debugPrint, part1.offset, part2.offset, part2._real);
-			return Derivation(part3.offset, part2._real);
+			debug(2) writefln("%s matched '(' Expression{%s} ')'", debugPrint, part2);
+			return Derivation(part3.offset, part2._real, recurse);
 		}
 
 		// Expression = Digit
 		debug(3) writefln("%s trying Digit", debugPrint);
 		if (table.matchNonterminal(part1, offset, Nonterminal.digit, 0)) {
-			debug(2) writefln("%s matched Digit{%d-%d:%g}", debugPrint, offset, part1.offset, part1._real);
-			return part1;
+			debug(2) writefln("%s matched Digit{%d:%g}", debugPrint, part1.offset, part1._real);
+			return part1.markRecursive(recurse);
 		}
 
 		debug(2) writefln("%s failed", debugPrint);
 		return Derivation.init; // Failure
-	default:
-		assert(0);
+
+	default: assert(0);
 	}
 }
 
+/* Parsing function for the nonterminal Digit */
 Derivation digit(size_t offset, DerivsTable table, CallStack stack = null) {
+	/* Pretty printer for debugging */
 	@property string debugPrint() {
 		return format("digit:%d", offset);
 	}

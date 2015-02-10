@@ -3,6 +3,7 @@
 
 import std.string;
 
+/* Single-message exception */
 class OutOfInputException : object.Exception {
 	this() {
 		super("Input exhausted");
@@ -21,31 +22,36 @@ struct Derivation {
 		_real,
 	}
 
-	size_t offset;
-	Type type = Type.failure;
+	size_t offset; // The codepoint offset in the input string after the parse
+	bool recurse; // Whether a left-recursion attempt has been made
+	Type type = Type.failure; // Tag type of the associated semantic value
 
-	this(size_t offset) {
+	this(size_t offset, bool recurse = false) {
 		this.offset = offset;
 		type = Type._null;
 		value._dstring = null;
+		this.recurse = recurse;
 	}
 
-	this(size_t offset, dchar value) {
+	this(size_t offset, dchar value, bool recurse = false) {
 		this.offset = offset;
 		type = Type._dchar;
 		this.value._dchar = value;
+		this.recurse = recurse;
 	}
 
-	this(size_t offset, dstring value) {
+	this(size_t offset, dstring value, bool recurse = false) {
 		this.offset = offset;
 		type = Type._dstring;
 		this.value._dstring = value;
+		this.recurse = recurse;
 	}
 
-	this(size_t offset, real value) {
+	this(size_t offset, real value, bool recurse = false) {
 		this.offset = offset;
 		type = Type._real;
 		this.value._real = value;
+		this.recurse = recurse;
 	}
 
 	@property nothrow dchar _dchar() const {
@@ -82,8 +88,15 @@ struct Derivation {
 		return type != Type.failure;
 	}
 
+	/* Marks the Derivation as being recursive */
+	nothrow Derivation markRecursive(bool recurse = true) {
+		this.recurse = recurse;
+		return this;
+	}
+
+	/* Pretty printer for debugging */
 	string toString() const {
-		string ret = format("%d:", offset);
+		string ret = format("%d%s:", offset, recurse ? "LR" : "");
 		final switch (type) {
 		case Type.failure: return ret ~ "failure";
 		case Type._null: return ret ~ "null";
@@ -101,13 +114,18 @@ private:
 		real _real;
 	}
 
-	Value value;
+	Value value; // Private semantic value
 }
 
+/* Interface to a random-access contiguous input wrapper */
 interface InputBuffer {
-	dchar opIndex(size_t); // retrieve the nth character, blocking
-	dstring opSlice(size_t, size_t); // retrieve a range of characters, blocking
-	@property nothrow size_t available() const; // number of characters available
-	@property nothrow bool eof() const; // if more characters could become available
+	/* Retrieve the nth character of input, blocking */
+	dchar opIndex(size_t);
+	/* Retrieve a range of characters, blocking */
+	dstring opSlice(size_t, size_t);
+	/* The number of characters currently available */
+	@property nothrow size_t available() const;
+	/* If !eof, further characters could become available */
+	@property nothrow bool eof() const;
 }
 
