@@ -131,9 +131,7 @@ pure string ruleStringToString(T)(T x) if (isRuleString!T) {
 }
 
 /* Template tests for valid components of parsing rules */
-enum bool isRuleComponent(T) = is(T : RuleNonterminal) ||
-							   isRuleCharacter!T ||
-							   isRuleString!T;
+enum bool isRuleComponent(T) = is(T : RuleNonterminal) || isRuleCharacter!T || isRuleString!T;
 enum bool isARuleComponent(alias x) = isRuleComponent!(typeof(x));
 
 /* Main packrat parsing memotable, includes separate nonterminal and string
@@ -369,7 +367,7 @@ mixin template ParsingDeclarations(bool hasPrecedence = true, bool hasRecursion 
  */
 mixin template ParseRule(alias semanticAction, bool recursive, Components...)
 if (Components.length && allSatisfy!(isARuleComponent, Components)) {
-	Derivation value; // Derivation of the parse rule result
+	Derivation result; // Parse rule derivation result
 
 	/* Attempt to match the parse rule, returns success/failure and sets value
 	 */
@@ -418,12 +416,12 @@ if (Components.length && allSatisfy!(isARuleComponent, Components)) {
 			} else static assert(0);
 		}
 
-		// Match succeeds, obtain semantic value of combined parse and set value
-		// including possible use of tryRecurse flag
+		// Match succeeds, obtain semantic value of combined parse and set
+		// result, including possible use of tryRecurse flag
 		static if (recursive) {
-			value = Derivation(parts[$ - 1].offset, semanticAction(parts), tryRecurse);
+			result = Derivation(parts[$ - 1].offset, semanticAction(parts), tryRecurse);
 		} else {
-			value = Derivation(parts[$ - 1].offset, semanticAction(parts));
+			result = Derivation(parts[$ - 1].offset, semanticAction(parts));
 		}
 
 		// Debug printer for successful matching of rule
@@ -438,7 +436,7 @@ if (Components.length && allSatisfy!(isARuleComponent, Components)) {
 					writef(" %s", ruleStringToString(C));
 				} else static assert(0);
 			}
-			writefln(" => %s", value);
+			writefln(" => %s", result);
 		}
 
 		return true;
@@ -458,13 +456,13 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		mixin ParseRule!((x) { return x[0]._real + x[2]._real; }, true,
 						RuleNonterminal("expression", 0), '+', RuleNonterminal("expression", 1)) PR0_1;
 		if (PR0_1.match()) {
-			return PR0_1.value;
+			return PR0_1.result;
 		}
 
 		mixin ParseRule!((x) { return x[0]._real - x[2]._real; }, true,
 						RuleNonterminal("expression", 0), '-', RuleNonterminal("expression", 1)) PR0_2;
 		if (PR0_2.match()) {
-			return PR0_2.value;
+			return PR0_2.result;
 		}
 
 		return precedenceFallthrough(1);
@@ -473,13 +471,13 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		mixin ParseRule!((x) { return x[0]._real * x[2]._real; }, true,
 						RuleNonterminal("expression", 1), '*', RuleNonterminal("expression", 2)) PR1_1;
 		if (PR1_1.match()) {
-			return PR1_1.value;
+			return PR1_1.result;
 		}
 
 		mixin ParseRule!((x) { return x[0]._real / x[2]._real; }, true,
 						RuleNonterminal("expression", 1), '/', RuleNonterminal("expression", 2)) PR1_2;
 		if (PR1_2.match()) {
-			return PR1_2.value;
+			return PR1_2.result;
 		}
 
 		return precedenceFallthrough(2);
@@ -488,7 +486,7 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		mixin ParseRule!((x) { return x[0]._real ^^ x[2]._real; }, false,
 						RuleNonterminal("expression", 3), '^', RuleNonterminal("expression", 2)) PR2_1;
 		if (PR2_1.match()) {
-			return PR2_1.value;
+			return PR2_1.result;
 		}
 
 		return precedenceFallthrough(3);
@@ -497,13 +495,13 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		mixin ParseRule!((x) { return x[1]._real; }, false,
 						'(', RuleNonterminal("expression", 0), ')') PR3_1;
 		if (PR3_1.match()) {
-			return PR3_1.value;
+			return PR3_1.result;
 		}
 
 		mixin ParseRule!((x) { return x[0]._real; }, false,
 						RuleNonterminal("digit", 0)) PR3_2;
 		if (PR3_2.match()) {
-			return PR3_2.value;
+			return PR3_2.result;
 		}
 
 		return failure;
