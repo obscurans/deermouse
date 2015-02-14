@@ -2,7 +2,7 @@
  *  All rights reserved. See /LICENCE.md */
 
 import interfaces;
-import std.ascii, std.conv, std.stdio, std.string;
+import std.ascii, std.conv, std.stdio, std.string, std.typetuple;
 
 /* Public parsing class, handles setup and use of the memotable */
 class Parser {
@@ -52,6 +52,89 @@ class CallStack {
 		this.precedence = precedence;
 	}
 }
+
+/* Struct for a single nonterminal component of a parsing rule */
+struct RuleNonterminal {
+	string type;
+	byte precedence;
+
+	/* Pretty printer for debugging */
+	string toString() const {
+		return format("%s(%d)", type, precedence);
+	}
+}
+
+/* Struct for a single literal character component of a parsing rule */
+struct RuleCharacter {
+	dchar character;
+
+	/* Pretty printer for debugging */
+	string toString() const {
+		return format("'%c'", character);
+	}
+}
+
+/* Template test for a RuleCharacter or bare character */
+enum bool isRuleCharacter(T) = is(T : RuleCharacter) || is(T : dchar);
+
+/* Template function to take the character out of a RuleCharacter or bare
+ * character as needed */
+pure dchar ruleCharacterOf(alias x)() if (isRuleCharacter!(typeof(x))) {
+	static if (is(typeof(x) : RuleCharacter)) {
+		return x.character;
+	} else static if (is(typeof(x) : dchar)) {
+		return cast(dchar) x;
+	} else static assert(0);
+}
+
+/* Template function to pretty print a RuleCharacter or bare character as needed
+ * for debugging */
+pure string ruleCharacterToString(T)(T x) if (isRuleCharacter!T) {
+	static if (is(T : RuleCharacter)) {
+		return x.toString();
+	} else static if (is(T : dchar)) {
+		return format("'%c'", x);
+	} else static assert(0);
+}
+
+/* Struct for a single literal string component of a parsing rule */
+struct RuleString {
+	dstring characters;
+
+	/* Pretty printer for debugging */
+	string toString() const {
+		return format("\"%s\"", characters);
+	}
+}
+
+/* Template test for a RuleSring or bare string */
+enum bool isRuleString(T) = is(T : RuleString) || is(T : dstring);
+
+/* Template function to take the string out of a RuleString or bare string as
+ * needed */
+pure dstring ruleStringOf(alias x)() if (isRuleString!(typeof(x))) {
+	static if (is(typeof(x) : RuleString)) {
+		return x.characters;
+	} else static if (is(typeof(x) : dstring)) {
+		return cast(dstring) x;
+	} else static assert(0);
+}
+
+/* Template function to pretty print a RuleString or bare string as needed for
+ * debugging */
+pure string ruleStringToString(T)(T x) if (isRuleString!T) {
+	static if (is(T : RuleString)) {
+		return x.toString();
+	} else static if (is(T : dstring)) {
+		return format("\"%s\"", x);
+	} else static assert(0);
+}
+
+/* Template tests for valid components of parsing rules */
+enum bool isRuleComponent(T) = is(T : RuleNonterminal) ||
+							   isRuleCharacter!T ||
+							   isRuleString!T;
+enum bool isARuleComponent(alias x) = isRuleComponent!(typeof(x));
 
 /* Main packrat parsing memotable, includes separate nonterminal and string
  * match memotables */
@@ -224,20 +307,20 @@ class DerivsTable {
 /* Mixin template for common top-level declarations for nonterminal parsing
  * functions.
  *
- * precedence: whether this nonterminal has precedence levels (used in debug
- *             printer)
- * recursion: whether this nonterminal has left-recursive rules (marker
- *          variable needed in that case)
+ * hasPrecedence: whether this nonterminal has precedence levels
+ * hasRecursion: whether this nonterminal has left-recursive rules
  */
-mixin template ParsingDeclarations(bool precedence = true, bool recursion = false) {
+mixin template ParsingDeclarations(bool hasPrecedence = true, bool hasRecursion = false) {
 	// Take last part of fully qualified name at point of instantiation
 	enum nonterminalName = __FUNCTION__[(lastIndexOf(__FUNCTION__, '.') == -1 ? 0 : lastIndexOf(__FUNCTION__, '.') + 1) .. $];
 	// Cast to eponymous Nonterminal enum to retrieve parsing function
 	enum nonterminalFunction = to!Nonterminal(nonterminalName);
+	// Marker for whether this nonterminal has left-recursive rules
+	enum recursion = hasRecursion;
 
 	/* Pretty printer for debugging */
 	@property string debugName() {
-		static if (precedence) {
+		static if (hasPrecedence) {
 			return format("%s(%d):%d", nonterminalName, stack.precedence, offset);
 		} else {
 			return format("%s:%d", nonterminalName, offset);
@@ -256,9 +339,9 @@ mixin template ParsingDeclarations(bool precedence = true, bool recursion = fals
 	}
 
 	static if (recursion) {
-		/* Whether a left-recursive rule has been tried, to mark the result for
-		 * left-recursion handling */
-		bool recurse = false;
+		// Whether a left-recursive rule has been tried, to mark the result for
+		// left-recursion handling
+		bool tryRecurse = false;
 	}
 
 	/* Return value on falling through a precedence level, plus debug printing
@@ -266,10 +349,99 @@ mixin template ParsingDeclarations(bool precedence = true, bool recursion = fals
 	Derivation precedenceFallthrough(byte precedence) {
 		debug(3) writefln("%s falling through precedence level", debugName);
 		static if (recursion) {
-			return table[offset, nonterminalFunction, precedence].markRecursive(recurse);
+			return table[offset, nonterminalFunction, precedence].markRecursive(tryRecurse);
 		} else {
 			return table[offset, nonterminalFunction, precedence];
 		}
+	}
+}
+
+/* Main mixin template for compile-time automatically generating a nonterminal
+ * parse rule
+ *
+ * semanticAction: Function to generate the semantic value of the combined parse
+ *				   from the Derivations of the components. Will be called with
+ *				   the array of component Derivations
+ * recursive: Whether this specific parse rule is left-recursive
+ * Components: Nonempty ordered list of parse rule components. These can be
+ *			   either RuleNonterminal, RuleCharacter, bare dchar, RuleString, or
+ *			   bare dstring
+ */
+mixin template ParseRule(alias semanticAction, bool recursive, Components...)
+if (Components.length && allSatisfy!(isARuleComponent, Components)) {
+	Derivation value; // Derivation of the parse rule result
+
+	/* Attempt to match the parse rule, returns success/failure and sets value
+	 */
+	bool match() {
+		Derivation[Components.length] parts; // Component parse Derivations
+
+		// Debug printer for the parse rule name on start of attempt
+		debug(3) {
+			writef("%s trying", debugName);
+			foreach (C; Components) {
+				writef(" %s", C);
+			}
+			writeln();
+		}
+
+		static if (recursive) {
+			// Mark the tried left-recursion flag for future handling
+			tryRecurse = true;
+		}
+
+		// Attempt to match each of the components in order
+		foreach (i, C; Components) {
+			// Compute the offset to start from for next component
+			static if (i == 0) {
+				size_t nextOffset = offset;
+			} else {
+				size_t nextOffset = parts[i - 1].offset;
+			}
+
+			// Compile-time switch for handling nonterminals, characters, and
+			// strings properly. If any component fails, entire match fails
+			static if (is(typeof(C) : RuleNonterminal)) {
+				if (!table.matchNonterminal(parts[i], nextOffset, to!Nonterminal(C.type), C.precedence)) {
+					return false;
+				}
+			} else static if (isRuleCharacter!(typeof(C))) {
+				enum character = ruleCharacterOf!C;
+				if (!table.matchCharacter(parts[i], nextOffset, character)) {
+					return false;
+				}
+			} else static if (isRuleString!(typeof(C))) {
+				enum characters = ruleStringOf!C;
+				if (!table.matchString(parts[i], nextOffset, characters)) {
+					return false;
+				}
+			} else static assert(0);
+		}
+
+		// Match succeeds, obtain semantic value of combined parse and set value
+		// including possible use of tryRecurse flag
+		static if (recursive) {
+			value = Derivation(parts[$ - 1].offset, semanticAction(parts), tryRecurse);
+		} else {
+			value = Derivation(parts[$ - 1].offset, semanticAction(parts));
+		}
+
+		// Debug printer for successful matching of rule
+		debug(2) {
+			writef("%s matched", debugName);
+			foreach (i, C; Components) {
+				static if (is(typeof(C) : RuleNonterminal)) {
+					writef(" %s{%s}", C, parts[i]);
+				} else static if (isRuleCharacter!(typeof(C))) {
+					writef(" %s", ruleCharacterToString(C));
+				} else static if (isRuleString!(typeof(C))) {
+					writef(" %s", ruleStringToString(C));
+				} else static assert(0);
+			}
+			writefln(" => %s", value);
+		}
+
+		return true;
 	}
 }
 
@@ -285,78 +457,55 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 
 	switch (stack.precedence) {
 	case 0:
-		// Expression = Expression '+' Expression %l
-		debug(3) writefln("%s trying Expression(0) '+' Expression(1)", debugName);
-		recurse = true;
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 0) &&
-		  table.matchCharacter(part2, part1.offset, '+') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
-			debug(2) writefln("%s matched Expression{%s} '+' Expression{%s} : %g", debugName, part1, part3, part1._real + part3._real);
-			return Derivation(part3.offset, part1._real + part3._real, recurse);
+		mixin ParseRule!((x) { return x[0]._real + x[2]._real; }, true,
+						RuleNonterminal("expression", 0), '+', RuleNonterminal("expression", 1)) PR0_1;
+		if (PR0_1.match()) {
+			return PR0_1.value;
 		}
 
-		// Expression = Expression '-' Expression %l
-		debug(3) writefln("%s trying Expression(0) '-' Expression(1)", debugName);
-		recurse = true;
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 0) &&
-		  table.matchCharacter(part2, part1.offset, '-') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 1)) {
-			debug(2) writefln("%s matched Expression{%s} '-' Expression{%s} : %g", debugName, part1, part3, part1._real - part3._real);
-			return Derivation(part3.offset, part1._real - part3._real, recurse);
+		mixin ParseRule!((x) { return x[0]._real - x[2]._real; }, true,
+						RuleNonterminal("expression", 0), '-', RuleNonterminal("expression", 1)) PR0_2;
+		if (PR0_2.match()) {
+			return PR0_2.value;
 		}
 
 		return precedenceFallthrough(1);
 
 	case 1:
-		// Expression = Expression '*' Expression %l
-		debug(3) writefln("%s trying Expression(1) '*' Expression(2)", debugName);
-		recurse = true;
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
-		  table.matchCharacter(part2, part1.offset, '*') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
-			debug(2) writefln("%s matched Expression{%s} '*' Expression{%s} : %g", debugName, part1, part3, part1._real * part3._real);
-			return Derivation(part3.offset, part1._real * part3._real, recurse);
+		mixin ParseRule!((x) { return x[0]._real * x[2]._real; }, true,
+						RuleNonterminal("expression", 1), '*', RuleNonterminal("expression", 2)) PR1_1;
+		if (PR1_1.match()) {
+			return PR1_1.value;
 		}
 
-		// Expression = Expression '/' Expression %l
-		debug(3) writefln("%s trying Expression(1) '/' Expression(2)", debugName);
-		recurse = true;
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 1) &&
-		  table.matchCharacter(part2, part1.offset, '/') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
-			debug(2) writefln("%s matched Expression{%s} '*' Expression{%s} : %g", debugName, part1, part3, part1._real / part3._real);
-			return Derivation(part3.offset, part1._real / part3._real, recurse);
+		mixin ParseRule!((x) { return x[0]._real / x[2]._real; }, true,
+						RuleNonterminal("expression", 1), '/', RuleNonterminal("expression", 2)) PR1_2;
+		if (PR1_2.match()) {
+			return PR1_2.value;
 		}
 
 		return precedenceFallthrough(2);
 
 	case 2:
-		// Expression = Expression '^' Expression %r
-		debug(3) writefln("%s trying Expression(3) '^' Expression(2)", debugName);
-		if (table.matchNonterminal(part1, offset, Nonterminal.expression, 3) &&
-		  table.matchCharacter(part2, part1.offset, '^') &&
-		  table.matchNonterminal(part3, part2.offset, Nonterminal.expression, 2)) {
-			debug(2) writefln("%s matched Expression{%s} '^' Expression{%s} : %g", debugName, part1, part3, part1._real ^^ part3._real);
-			return Derivation(part3.offset, part1._real ^^ part3._real, recurse);
+		mixin ParseRule!((x) { return x[0]._real ^^ x[2]._real; }, false,
+						RuleNonterminal("expression", 3), '^', RuleNonterminal("expression", 2)) PR2_1;
+		if (PR2_1.match()) {
+			return PR2_1.value;
 		}
 
 		return precedenceFallthrough(3);
 
 	case 3:
-		// Expression = '(' Expression %p 0 ')'
-		debug(3) writefln("%s trying '(' Expression(0) ')'", debugName);
-		if (table.matchCharacter(part1, offset, '(') &&
-		  table.matchNonterminal(part2, part1.offset, Nonterminal.expression, 0) &&
-		  table.matchCharacter(part3, part2.offset, ')')) {
-			debug(2) writefln("%s matched '(' Expression{%s} ')'", debugName, part2);
-			return Derivation(part3.offset, part2._real, recurse);
+		mixin ParseRule!((x) { return x[1]._real; }, false,
+						'(', RuleNonterminal("expression", 0), ')') PR3_1;
+		if (PR3_1.match()) {
+			return PR3_1.value;
 		}
 
-		// Expression = Digit
-		debug(3) writefln("%s trying Digit", debugName);
-		if (table.matchNonterminal(part1, offset, Nonterminal.digit, 0)) {
-			debug(2) writefln("%s matched Digit{%d:%g}", debugName, part1.offset, part1._real);
-			return part1.markRecursive(recurse);
+		mixin ParseRule!((x) { return x[0]._real; }, false,
+						RuleNonterminal("digit", 0)) PR3_2;
+		if (PR3_2.match()) {
+			return PR3_2.value;
 		}
 
 		return failure;
