@@ -453,8 +453,6 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 
 	topLevelPrint();
 
-	Derivation part1, part2, part3;
-
 	switch (stack.precedence) {
 	case 0:
 		mixin ParseRule!((x) { return x[0]._real + x[2]._real; }, true,
