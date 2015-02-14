@@ -223,7 +223,7 @@ class DerivsTable {
 
 /* Mixin template for automatically instantiating debug pretty-printer, compile-
  * time option to print precedence levels or not (for single-level nonterminals)
- */
+ * Adds top of parsing function print statement */
 mixin template DebugPrint(bool precedence = true) {
 	// Take last part of fully qualified name at point of instantiation
 	enum lastName = __FUNCTION__[(lastIndexOf(__FUNCTION__, '.') == -1 ? 0 : lastIndexOf(__FUNCTION__, '.') + 1) .. $];
@@ -236,6 +236,9 @@ mixin template DebugPrint(bool precedence = true) {
 			return format("%s:%d", lastName, offset);
 		}
 	}
+
+	// At the start of parsing function
+	debug(2) writefln("Parsing %s", debugPrint);
 }
 
 /* Parsing function for the nonterminal Expression */
@@ -248,7 +251,6 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 	/* Whether a left-recursive rule has been tried, to mark the result for
 	 * left-recursion handling */
 	bool recurse = false;
-	debug(2) writefln("Parsing %s", debugPrint);
 
 	switch (stack.precedence) {
 	case 0:
@@ -341,7 +343,6 @@ Derivation digit(size_t offset, DerivsTable table, CallStack stack = null) {
 	mixin DebugPrint!false;
 
 	Derivation part1;
-	debug(2) writefln("Parsing %s", debugPrint);
 
 	foreach (dchar i; '0' .. '9') {
 		if (table.matchCharacter(part1, offset, i)) {
