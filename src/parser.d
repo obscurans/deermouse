@@ -221,14 +221,28 @@ class DerivsTable {
 	}
 }
 
+/* Mixin template for automatically instantiating debug pretty-printer, compile-
+ * time option to print precedence levels or not (for single-level nonterminals)
+ */
+mixin template DebugPrint(bool precedence = true) {
+	// Take last part of fully qualified name at point of instantiation
+	enum lastName = __FUNCTION__[(lastIndexOf(__FUNCTION__, '.') == -1 ? 0 : lastIndexOf(__FUNCTION__, '.') + 1) .. $];
+
+	/* Pretty printer for debugging */
+	@property string debugPrint() {
+		static if (precedence) {
+			return format("%s(%d):%d", lastName, stack.precedence, offset);
+		} else {
+			return format("%s:%d", lastName, offset);
+		}
+	}
+}
+
 /* Parsing function for the nonterminal Expression */
 Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 	assert(stack !is null);
 } body {
-	/* Pretty printer for debugging */
-	@property string debugPrint() {
-		return format("expression(%d):%d", stack.precedence, offset);
-	}
+	mixin DebugPrint;
 
 	Derivation part1, part2, part3;
 	/* Whether a left-recursive rule has been tried, to mark the result for
@@ -324,10 +338,7 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 
 /* Parsing function for the nonterminal Digit */
 Derivation digit(size_t offset, DerivsTable table, CallStack stack = null) {
-	/* Pretty printer for debugging */
-	@property string debugPrint() {
-		return format("digit:%d", offset);
-	}
+	mixin DebugPrint!false;
 
 	Derivation part1;
 	debug(2) writefln("Parsing %s", debugPrint);
