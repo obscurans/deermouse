@@ -28,7 +28,7 @@ class FastWrapper : InputBuffer {
 	dstring opSlice(size_t begin, size_t end) const in {
 		assert(end >= begin);
 	} body {
-		if (end >= contents.length) {
+		if (end > contents.length) {
 			throw new OutOfInputException();
 		}
 

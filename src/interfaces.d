@@ -1,7 +1,9 @@
 /** Copyright (C) 2014-2015 Jeffrey Tsang.
  *  All rights reserved. See /LICENCE.md */
 
-import std.string;
+import std.regex, std.string;
+
+alias Capture = std.regex.Captures!dstring;
 
 /* Single-message exception */
 class OutOfInputException : object.Exception {
@@ -17,8 +19,8 @@ struct Derivation {
 	enum Type {
 		failure,
 		_null,
+		capture,
 		_dchar,
-		_dstring,
 		_real,
 	}
 
@@ -29,7 +31,13 @@ struct Derivation {
 	this(size_t offset, bool recurse = false) {
 		this.offset = offset;
 		type = Type._null;
-		value._dstring = null;
+		this.recurse = recurse;
+	}
+
+	this(size_t offset, Capture value, bool recurse = false) {
+		this.offset = offset;
+		type = Type.capture;
+		this.value.capture = value;
 		this.recurse = recurse;
 	}
 
@@ -40,13 +48,6 @@ struct Derivation {
 		this.recurse = recurse;
 	}
 
-	this(size_t offset, dstring value, bool recurse = false) {
-		this.offset = offset;
-		type = Type._dstring;
-		this.value._dstring = value;
-		this.recurse = recurse;
-	}
-
 	this(size_t offset, real value, bool recurse = false) {
 		this.offset = offset;
 		type = Type._real;
@@ -54,7 +55,17 @@ struct Derivation {
 		this.recurse = recurse;
 	}
 
-	@property nothrow dchar _dchar() const {
+	@property pure nothrow Capture capture() const {
+		assert(type == Type.capture);
+		return cast() value.capture; // Value type, strip const
+	}
+
+	@property nothrow Capture capture(Capture value) {
+		assert(type == Type.capture);
+		return this.value.capture = value;
+	}
+
+	@property pure nothrow dchar _dchar() const {
 		assert(type == Type._dchar);
 		return value._dchar;
 	}
@@ -64,17 +75,7 @@ struct Derivation {
 		return this.value._dchar = value;
 	}
 
-	@property nothrow dstring _dstring() const {
-		assert(type == Type._dstring);
-		return value._dstring;
-	}
-
-	@property nothrow dstring _dstring(dstring value) {
-		assert(type == Type._dstring);
-		return this.value._dstring = value;
-	}
-
-	@property nothrow real _real() const {
+	@property pure nothrow real _real() const {
 		assert(type == Type._real);
 		return value._real;
 	}
@@ -84,7 +85,7 @@ struct Derivation {
 		return this.value._real = value;
 	}
 
-	@property nothrow bool success() const {
+	@property pure nothrow bool success() const {
 		return type != Type.failure;
 	}
 
@@ -100,8 +101,8 @@ struct Derivation {
 		final switch (type) {
 		case Type.failure: return ret ~ "failure";
 		case Type._null: return ret ~ "null";
-		case Type._dchar: return ret ~ format("(char)%s", _dchar);
-		case Type._dstring: return ret ~ format("(string)%s",_dstring);
+		case Type.capture: return ret ~ format("(string)%s", capture[0]);
+		case Type._dchar: return ret ~ format("(char)%c", _dchar);
 		case Type._real: return ret ~ format("(real)%g", _real);
 		}
 	}
@@ -109,8 +110,8 @@ struct Derivation {
 private:
 	/* Tagged union for semantic values */
 	union Value {
+		Capture capture;
 		dchar _dchar;
-		dstring _dstring;
 		real _real;
 	}
 
@@ -124,8 +125,8 @@ interface InputBuffer {
 	/* Retrieve a range of characters, blocking */
 	dstring opSlice(size_t, size_t);
 	/* The number of characters currently available */
-	@property nothrow size_t available() const;
+	@property pure nothrow size_t available() const;
 	/* If !eof, further characters could become available */
-	@property nothrow bool eof() const;
+	@property pure nothrow bool eof() const;
 }
 

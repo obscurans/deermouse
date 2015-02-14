@@ -2,7 +2,7 @@
  *  All rights reserved. See /LICENCE.md */
 
 import interfaces;
-import std.ascii, std.conv, std.stdio, std.string, std.typetuple;
+import std.array, std.ascii, std.conv, std.regex, std.stdio, std.string, std.typetuple;
 
 /* Public parsing class, handles setup and use of the memotable */
 class Parser {
@@ -40,7 +40,7 @@ private:
  * functions, with a common interface */
 enum Nonterminal : Derivation function(size_t, DerivsTable, CallStack = null) {
 	expression = &.expression,
-	digit = &.digit
+	number = &.number
 }
 
 /* TODO: left-recursion handling callstack, annotated with precedence levels */
@@ -59,82 +59,86 @@ struct RuleNonterminal {
 	byte precedence;
 
 	/* Pretty printer for debugging */
-	string toString() const {
+	pure string toString() const {
 		return format("%s(%d)", type, precedence);
 	}
 }
 
-/* Struct for a single literal character component of a parsing rule */
+/* Struct for a single regex component of a parsing rule */
+struct RuleRegex {
+	dstring regex;
+
+	/* Pretty printer for debugging */
+	pure string toString() const {
+		return format(`"%s"`, regex);
+	}
+}
+
+/* Struct for a single character component of a parsing rule */
 struct RuleCharacter {
 	dchar character;
 
 	/* Pretty printer for debugging */
-	string toString() const {
+	pure string toString() const {
 		return format("'%c'", character);
 	}
 }
 
-/* Template test for a RuleCharacter or bare character */
-enum bool isRuleCharacter(T) = is(T : RuleCharacter) || is(T : dchar);
+/* Struct for a single character class component of a parsing rule */
+struct RuleCharacterClass {
+	dstring characters;
 
-/* Template function to take the character out of a RuleCharacter or bare
- * character as needed */
-pure dchar ruleCharacterOf(alias x)() if (isRuleCharacter!(typeof(x))) {
-	static if (is(typeof(x) : RuleCharacter)) {
-		return x.character;
-	} else static if (is(typeof(x) : dchar)) {
-		return cast(dchar) x;
+	/* Pretty printer for debugging */
+	pure string toString() const {
+		return format("[%s]", characters);
+	}
+}
+
+/* Template tests for valid components of parsing rules */
+enum bool isRuleRegex(T) = is(T : RuleRegex) || isSomeString!T;
+enum bool isARuleRegex(alias x) = isRuleRegex!(typeof(x));
+enum bool isRuleCharacter(T) = is(T : RuleCharacter) || is(T : dchar) || is(T : RuleCharacterClass);
+enum bool isARuleCharacter(alias x) = isRuleCharacter!(typeof(x));
+enum bool isRuleComponent(T) = is(T : RuleNonterminal) || isRuleRegex!T || isRuleCharacter!T;
+enum bool isARuleComponent(alias x) = isRuleComponent!(typeof(x));
+
+/* Template function to take the string out of a RuleRegex, or bare regex string
+ * as needed */
+pure dstring ruleRegexOf(alias x)() if (isARuleRegex!x) {
+	static if (is(typeof(x) : RuleRegex)) {
+		return x.regex;
+	} else static if (isSomeString!(typeof(x))) {
+		return array(x);
 	} else static assert(0);
 }
 
-/* Template function to pretty print a RuleCharacter or bare character as needed
- * for debugging */
-pure string ruleCharacterToString(T)(T x) if (isRuleCharacter!T) {
-	static if (is(T : RuleCharacter)) {
+/* Template function to take the character out of a RuleCharacter, or bare
+ * character; or the character class string out of a RuleCharacterClass as
+ * needed */
+pure auto ruleCharacterOf(alias x)() if (isARuleCharacter!x) {
+	static if (is(typeof(x) : RuleCharacter)) {
+		return x.character;
+	} else static if (is(typeof(x) : dchar)) {
+		return x;
+	} else static if (is(typeof(x) : RuleCharacterClass)) {
+		return x.characters;
+	} else static assert(0);
+}
+
+/* Template function to pretty print any rule component as needed for debugging
+ */
+pure string ruleComponentToString(T)(T x) if (isRuleComponent!T) {
+	static if (is(T : RuleNonterminal) || is(T : RuleRegex) ||
+			   is(T : RuleCharacter) || is(T : RuleCharacterClass)) {
 		return x.toString();
+	} else static if (isSomeString!T) {
+		return format(`"%s"`, x);
 	} else static if (is(T : dchar)) {
 		return format("'%c'", x);
 	} else static assert(0);
 }
 
-/* Struct for a single literal string component of a parsing rule */
-struct RuleString {
-	dstring characters;
-
-	/* Pretty printer for debugging */
-	string toString() const {
-		return format("\"%s\"", characters);
-	}
-}
-
-/* Template test for a RuleSring or bare string */
-enum bool isRuleString(T) = is(T : RuleString) || is(T : dstring);
-
-/* Template function to take the string out of a RuleString or bare string as
- * needed */
-pure dstring ruleStringOf(alias x)() if (isRuleString!(typeof(x))) {
-	static if (is(typeof(x) : RuleString)) {
-		return x.characters;
-	} else static if (is(typeof(x) : dstring)) {
-		return cast(dstring) x;
-	} else static assert(0);
-}
-
-/* Template function to pretty print a RuleString or bare string as needed for
- * debugging */
-pure string ruleStringToString(T)(T x) if (isRuleString!T) {
-	static if (is(T : RuleString)) {
-		return x.toString();
-	} else static if (is(T : dstring)) {
-		return format("\"%s\"", x);
-	} else static assert(0);
-}
-
-/* Template tests for valid components of parsing rules */
-enum bool isRuleComponent(T) = is(T : RuleNonterminal) || isRuleCharacter!T || isRuleString!T;
-enum bool isARuleComponent(alias x) = isRuleComponent!(typeof(x));
-
-/* Main packrat parsing memotable, includes separate nonterminal and string
+/* Main packrat parsing memotable, includes separate nonterminal and regex
  * match memotables */
 class DerivsTable {
 	/* Index type for the nonterminal memotable */
@@ -149,21 +153,21 @@ class DerivsTable {
 		}
 	}
 
-	/* Index type for the string matching memotable */
-	struct StringIndex {
+	/* Index type for the regex matching memotable */
+	struct RegexIndex {
 		size_t offset;
-		dstring characters;
+		dstring regex;
 
 		/* Pretty printer for debugging */
 		string toString() const {
-			return format("string(%s):%d", characters, offset);
+			return format(`"%s":%d`, regex, offset);
 		}
 	}
 
 	InputBuffer input;
 	// Main memotable for nonterminal derivations
 	Derivation[NonterminalIndex] memotable;
-	bool[StringIndex] stringtable; // String match memotable
+	Capture[RegexIndex] regextable; // Regex match memotable
 
 	/* One-field constructor */
 	this(InputBuffer input) {
@@ -174,7 +178,7 @@ class DerivsTable {
 	void bindInputBuffer(InputBuffer newbuf) {
 		input = newbuf;
 		memotable = memotable.init; // Clear memotables
-		stringtable = stringtable.init;
+		regextable = regextable.init;
 	}
 
 	/* Memoized function for parsing a nonterminal, handles direct
@@ -199,9 +203,9 @@ class DerivsTable {
 			return memotable[index] = temp;
 		}
 
-		/* Left recursion handling algorithm */
+		// Left recursion handling algorithm
 		do {
-			/* Memoize current parse result */
+			// Memoize current parse result
 			memotable[index] = temp;
 
 			debug(2) writeln(index, " left recursion detected, reevaluating parsing function");
@@ -210,8 +214,7 @@ class DerivsTable {
 			 * left-recursive parse */
 			temp = index.type(index.offset, this, new CallStack(index.precedence));
 
-		/* Termination condition is if the parse fails to grow further
-		 */
+		// Termination condition: if the parse fails to grow further
 		} while (temp.offset > memotable[index].offset);
 
 		debug(2) writeln(index, " left recursion ended: ", memotable[index].markRecursive(false));
@@ -225,42 +228,28 @@ class DerivsTable {
 		return opIndex(NonterminalIndex(offset, type, precedence));
 	}
 
-	/* Memoized function for matching an unadorned raw string */
-	bool opIndex(StringIndex index) {
+	/* Memoized function for matching a regex string */
+	Capture retrieveMatch(dstring regex)(size_t offset) {
+		RegexIndex index = RegexIndex(offset, regex);
+		// Force all regexes to be applied at start of offset
+		enum matcher = ctRegex!("^" ~ regex);
+
 		debug(1) writeln("Retrieving ", index);
-		if (index !in stringtable) {
-			debug(4) writeln(index, " not found, string matching");
+		if (index !in regextable) {
+			debug(4) writeln(index, " not found, regex matching");
 			// Create table entry
 			try {
-				stringtable[index] = (input[index.offset .. index.offset +
-				  index.characters.length] == index.characters);
+				/* TODO: currently forced to use dstring instead of passing
+				 * input range by std.regex, BREAKS lazy input buffers */
+				regextable[index] = matchFirst(input[offset .. input.available], matcher);
 			} catch (OutOfInputException e) {
 				debug(4) writeln(index, " out of input");
-				stringtable[index] = false;
+				regextable[index] = Capture.init;
 			}
 		}
 
-		debug(2) writeln(index, stringtable[index] ? " success" : " failure");
-		return stringtable[index]; // Return memoized result
-	}
-
-	/* Thin wrapper for array access indexing for an unadorned raw string */
-	bool opIndex(size_t offset, dstring characters) {
-		return opIndex(StringIndex(offset, characters));
-	}
-
-	/* Thin wrapper for array access indexing for an unadorned raw character */
-	bool opIndex(size_t offset, dchar character) {
-		debug(5) writefln("Matching char(%c):%d", character, offset);
-		try {
-			if (input[offset] == character) {
-				return true;
-			}
-		} catch (OutOfInputException e) { // Fall through
-			debug(5) writefln("char(%c):%d out of input", character, offset);
-		}
-
-		return false;
+		debug(2) writeln(index, cast(bool) regextable[index] ? " matched " ~ regextable[index][0] : " failure");
+		return regextable[index]; // Return memoized result
 	}
 
 	/* Thin wrapper for attempting to match a nonterminal and testing its
@@ -270,11 +259,11 @@ class DerivsTable {
 		return deriv.success;
 	}
 
-	/* Thin wrapper for attempting to match an unadorned raw string and testing
-     * its success */
-	bool matchString(out Derivation deriv, size_t offset, dstring characters) {
-		if (this[offset, characters]) {
-			deriv = Derivation(offset + characters.length, characters);
+	/* Thin wrapper for attempting to match a regex and testing its success */
+	bool matchRegex(dstring regex)(out Derivation deriv, size_t offset) {
+		Capture match = retrieveMatch!regex(offset);
+		if (cast(bool) match) {
+			deriv = Derivation(offset + match[0].length, match);
 			return true;
 		} else {
 			deriv = Derivation.init;
@@ -282,15 +271,36 @@ class DerivsTable {
 		}
 	}
 
-	/* Thin wrapper for attempting to match a single unadorned raw character */
-	bool matchCharacter(out Derivation deriv, size_t offset, dchar character) {
-		if (this[offset, character]) {
-			deriv = Derivation(offset + 1, character);
-			return true;
-		} else {
-			deriv = Derivation.init;
-			return false;
+	/* Attempt to match a single bare character */
+	bool matchCharacter(dchar character)(out Derivation deriv, size_t offset) {
+		debug(5) writefln("Matching '%c':%d", character, offset);
+		try {
+			if (this.input[offset] == character) {
+				deriv = Derivation(offset + 1, character);
+				return true;
+			}
+		} catch (OutOfInputException e) { // Fall through to failure
+			debug(5) writefln("'%c':%d out of input", character, offset);
 		}
+
+		deriv = Derivation.init;
+		return false;
+	}
+
+	/* Attempt to match a character class */
+	bool matchCharacter(dstring characters)(out Derivation deriv, size_t offset) {
+		debug(5) writefln("Matching [%s]:%d", characters, offset);
+		try {
+			if (inPattern(this.input[offset], characters)) {
+				deriv = Derivation(offset + 1, this.input[offset]);
+				return true;
+			}
+		} catch (OutOfInputException e) { // Fall through to failure
+			debug(5) writefln("[%s]:%d out of input", characters, offset);
+		}
+
+		deriv = Derivation.init;
+		return false;
 	}
 
 	/* Pretty printer of entire table contents for debugging */
@@ -337,8 +347,8 @@ mixin template ParsingDeclarations(bool hasPrecedence = true, bool hasRecursion 
 	}
 
 	static if (recursion) {
-		// Whether a left-recursive rule has been tried, to mark the result for
-		// left-recursion handling
+		/* Whether a left-recursive rule has been tried, to mark the result for
+		 * left-recursion handling */
 		bool tryRecurse = false;
 	}
 
@@ -378,7 +388,7 @@ if (Components.length && allSatisfy!(isARuleComponent, Components)) {
 		debug(3) {
 			writef("%s trying", debugName);
 			foreach (C; Components) {
-				writef(" %s", C);
+				writef(" %s", ruleComponentToString(C));
 			}
 			writeln();
 		}
@@ -397,27 +407,28 @@ if (Components.length && allSatisfy!(isARuleComponent, Components)) {
 				size_t nextOffset = parts[i - 1].offset;
 			}
 
-			// Compile-time switch for handling nonterminals, characters, and
-			// strings properly. If any component fails, entire match fails
+			/* Compile-time switch for handling nonterminals, regexes, and
+			 * character (classes)? properly. If any component fails, entire
+			 * match fails */
 			static if (is(typeof(C) : RuleNonterminal)) {
 				if (!table.matchNonterminal(parts[i], nextOffset, to!Nonterminal(C.type), C.precedence)) {
 					return false;
 				}
-			} else static if (isRuleCharacter!(typeof(C))) {
-				enum character = ruleCharacterOf!C;
-				if (!table.matchCharacter(parts[i], nextOffset, character)) {
+			} else static if (isARuleRegex!C) {
+				enum regex = ruleRegexOf!C;
+				if (!table.matchRegex!regex(parts[i], nextOffset)) {
 					return false;
 				}
-			} else static if (isRuleString!(typeof(C))) {
-				enum characters = ruleStringOf!C;
-				if (!table.matchString(parts[i], nextOffset, characters)) {
+			} else static if (isARuleCharacter!C) {
+				enum character = ruleCharacterOf!C;
+				if (!table.matchCharacter!character(parts[i], nextOffset)) {
 					return false;
 				}
 			} else static assert(0);
 		}
 
-		// Match succeeds, obtain semantic value of combined parse and set
-		// result, including possible use of tryRecurse flag
+		/* Match succeeds, obtain semantic value of combined parse and set
+		 * result, including possible use of tryRecurse flag */
 		static if (recursive) {
 			result = Derivation(parts[$ - 1].offset, semanticAction(parts), tryRecurse);
 		} else {
@@ -428,12 +439,10 @@ if (Components.length && allSatisfy!(isARuleComponent, Components)) {
 		debug(2) {
 			writef("%s matched", debugName);
 			foreach (i, C; Components) {
-				static if (is(typeof(C) : RuleNonterminal)) {
-					writef(" %s{%s}", C, parts[i]);
-				} else static if (isRuleCharacter!(typeof(C))) {
-					writef(" %s", ruleCharacterToString(C));
-				} else static if (isRuleString!(typeof(C))) {
-					writef(" %s", ruleStringToString(C));
+				static if (is(typeof(C) : RuleNonterminal) || isARuleRegex!C) {
+					writef(" %s{%s}", ruleComponentToString(C), parts[i]);
+				} else static if (isARuleCharacter!C) {
+					writef(" %s", ruleComponentToString(C));
 				} else static assert(0);
 			}
 			writefln(" => %s", result);
@@ -499,7 +508,7 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 		}
 
 		mixin ParseRule!((x) { return x[0]._real; }, false,
-						RuleNonterminal("digit", 0)) PR3_2;
+						RuleNonterminal("number", 0)) PR3_2;
 		if (PR3_2.match()) {
 			return PR3_2.result;
 		}
@@ -510,19 +519,15 @@ Derivation expression(size_t offset, DerivsTable table, CallStack stack) in {
 	}
 }
 
-/* Parsing function for the nonterminal Digit */
-Derivation digit(size_t offset, DerivsTable table, CallStack stack = null) {
+/* Parsing function for the nonterminal Number */
+Derivation number(size_t offset, DerivsTable table, CallStack stack = null) {
 	mixin ParsingDeclarations!false;
 
 	topLevelPrint();
 
-	Derivation part1;
-
-	foreach (dchar i; '0' .. '9') {
-		if (table.matchCharacter(part1, offset, i)) {
-			debug(2) writefln("%s matched %c", debugName, i);
-			return Derivation(part1.offset, cast(real)(i - '0'));
-		}
+	mixin ParseRule!((x) { return to!real(x[0].capture[0]); }, false, `[0-9]*\.?[0-9]*`) PR;
+	if (PR.match()) {
+		return PR.result;
 	}
 
 	return failure;
