@@ -28,7 +28,7 @@ struct Derivation {
 	bool recurse; // Whether a left-recursion attempt has been made
 	Type type = Type.failure; // Tag type of the associated semantic value
 
-	this(size_t offset, bool recurse = false) {
+	this(size_t offset, typeof(null) value, bool recurse = false) {
 		this.offset = offset;
 		type = Type._null;
 		this.recurse = recurse;
@@ -101,7 +101,7 @@ struct Derivation {
 		final switch (type) {
 		case Type.failure: return ret ~ "failure";
 		case Type._null: return ret ~ "null";
-		case Type.capture: return ret ~ format("(string)%s", capture[0]);
+		case Type.capture: return ret ~ format("(match)%s", capture[0]);
 		case Type._dchar: return ret ~ format("(char)%c", _dchar);
 		case Type._real: return ret ~ format("(real)%g", _real);
 		}

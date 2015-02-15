@@ -20,7 +20,7 @@ class Parser {
 
 	/* Parse the input and return semantic value of starting terminal */
 	real parse() {
-		Derivation deriv = memotable[0, Nonterminal.expression, 0];
+		Derivation deriv = memotable[0, Nonterminal.whitespace, 0];
 
 		if (!deriv.success) {
 			throw new Exception("Parse failure");
@@ -30,8 +30,8 @@ class Parser {
 			throw new Exception("Input not exhausted");
 		}
 
-		debug(3) memotable.debugName();
-		return deriv._real;
+		debug(3) memotable.debugPrint();
+		return 0;//deriv._real;
 	}
 }
 
@@ -40,7 +40,8 @@ private:
  * functions, with a common interface */
 enum Nonterminal : Derivation function(size_t, DerivsTable, CallStack = null) {
 	expression = &.expression,
-	number = &.number
+	number = &.number,
+	whitespace = &.whitespace
 }
 
 /* TODO: left-recursion handling callstack, annotated with precedence levels */
@@ -304,10 +305,10 @@ class DerivsTable {
 	}
 
 	/* Pretty printer of entire table contents for debugging */
-	void debugName() {
+	void debugPrint() {
 		writeln("Table contents:");
 		foreach (key, val; memotable) {
-			writefln("%s -> %d:%f", key, val.offset, val._real);
+			writefln("%s -> %s", key, val);
 		}
 	}
 }
@@ -344,6 +345,11 @@ mixin template ParsingDeclarations(bool hasPrecedence = true, bool hasRecursion 
 	@property Derivation failure() {
 		debug(2) writefln("%s failed", debugName);
 		return Derivation.init;
+	}
+
+	@property Derivation emptyMatch() {
+		debug(2) writefln("%s matched empty string", debugName);
+		return Derivation(offset, null);
 	}
 
 	static if (recursion) {
@@ -531,5 +537,29 @@ Derivation number(size_t offset, DerivsTable table, CallStack stack = null) {
 	}
 
 	return failure;
+}
+
+/* Parsing function for the nonterminal Whitespace */
+Derivation whitespace(size_t offset, DerivsTable table, CallStack stack = null) {
+	mixin ParsingDeclarations!false;
+
+	topLevelPrint();
+
+	mixin ParseRule!((x) { return null; }, false, `\s+`, RuleNonterminal("whitespace", 0)) PR1;
+	if (PR1.match()) {
+		return PR1.result;
+	}
+
+	mixin ParseRule!((x) { return null; }, false, `//.*?(?:\r\n?|[\n\u2028\u2029]|$)`, RuleNonterminal("whitespace", 0)) PR2;
+	if (PR2.match()) {
+		return PR2.result;
+	}
+
+	mixin ParseRule!((x) { return null; }, false, `/\*(?:\*(?!/)|[^*])*\*/`, RuleNonterminal("whitespace", 0)) PR3;
+	if (PR3.match()) {
+		return PR3.result;
+	}
+
+	return emptyMatch;
 }
 

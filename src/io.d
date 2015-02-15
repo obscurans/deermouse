@@ -154,7 +154,7 @@ private:
 }
 
 int main(string[] args) {
-	InputBuffer input = new StringWrapper(args[1]);
+	InputBuffer input = new FastWrapper(args[1]);
 	Parser parser = new Parser(input);
 
 	writeln(parser.parse());
